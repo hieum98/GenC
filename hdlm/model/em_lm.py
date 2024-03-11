@@ -1,24 +1,15 @@
 from dataclasses import dataclass
-import json
 import logging
 import os
 from typing import Dict, List, Optional, Tuple, Union
 import torch 
-import torch.nn as nn
 from transformers import (AutoConfig, 
-                          BitsAndBytesConfig, 
-                          AutoModelForCausalLM,
-                          AutoModel,
-                          PreTrainedModel,
-                          PreTrainedTokenizer,
-                          MistralPreTrainedModel,
-                          MistralConfig)
+                          MistralModel,
+                          MistralPreTrainedModel,)
 from transformers.file_utils import ModelOutput
 from pytorch_metric_learning import losses, miners, distances
 
 from .modules import NextTokenLoss
-from .model_utils import get_trainable_parameters
-
 
 @dataclass
 class EmLMTrainOutput(ModelOutput):
@@ -28,217 +19,18 @@ class EmLMTrainOutput(ModelOutput):
     loss_gen: Optional[torch.Tensor] = None
 
 
-def get_device_map(force_auto_device_map: bool=False, max_memory_MB: int = None) -> Tuple[str, Union[int, List[int]]]:
-    if force_auto_device_map:
-        if os.environ.get("LOCAL_RANK") is not None:
-            # raise ValueError(
-            #    "Found DDP environment and force_auto_device_map is set to True, this configuration "
-            #    "is not supported. If you want to use DPP, set force_auto_device_map to False, so "
-            #    "a copy of the model is loaded in each GPU. If you want the split the model across "
-            #    "GPUs (force_auto_device_map=True), do not use DDP (launch your script with "
-            #    "pyton -m src/run.py config.json). If you are not in a DDP environment but you see "
-            #    "this error, you might have manually set the environment variable 'LOCAL_WORLD_SIZE' to a "
-            #    "number different than 1, please, remove this environment variable or set it to 1"
-            # )
-            if torch.cuda.is_available():
-                n_gpus = torch.cuda.device_count()
-            else:
-                logging.warning("You are in a DDP environment but no GPU is available, this may cause errors later on")
-                n_gpus = 0
-
-            max_memory = {i: max_memory_MB for i in range(n_gpus)}
-            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-            device_map = {"": local_rank}
-            max_memory = {"": max_memory[local_rank]} if max_memory_MB is not None else None
-
-        else:
-            logging.warning(
-                "Using auto device map, we will split the model across GPUs and CPU to fit the model in memory."
-            )
-            device_map = "auto"
-            max_memory = max_memory_MB
-    else:
-        max_memory = None
-        device_map = None
-    logging.info(f"We will load the model using the following device map: {device_map} and max_memory: {max_memory}")
-
-    return device_map, max_memory
-
-class EmLM(MistralPreTrainedModel):
+class MisTralEmbeddingLM(MistralPreTrainedModel):
     def __init__(
             self,
-            model_weights_name_or_path: str,
-            tokenizer: PreTrainedTokenizer,
-            quantization: Optional[int] = None,
-            use_gradient_checkpointing: bool = False,
-            use_lora: bool = False,
-            lora_weights_name_or_path: Optional[str] = None,
-            lora_target_modules: Optional[List[str]] = None,
-            lora_r: Optional[int] = 8,
-            lora_alpha: Optional[int] = 16,
-            lora_dropout: Optional[float] = 0.05,
-            torch_dtype: Optional[str] = "bfloat16",
-            inference: bool = False,
-            fsdp: bool = False,
+            config: AutoConfig,
             normalized: bool = True,
             pooling_method: str = 'mean', # One of ['cls', 'lasttoken', 'mean', 'weightedmean']
             loss_gen_type: str = "mixed",
             loss_gen_factor: float = None,
             ) -> None:
 
-        # Sanity checks
-        if isinstance(quantization, str):
-            quantization = int(quantization)
-        assert (quantization is None) or (
-            quantization in [4, 8]
-        ), f"Quantization must be 4 or 8, or None for FP32/FP16 training. You passed: {quantization}"
-
-        assert torch_dtype in ["bfloat16", "float32", "float16"], f"torch_dtype must be 'bfloat16', 'float32', or 'float16'. You passed: {torch_dtype}"
-
-        if lora_weights_name_or_path is not None and not use_lora:
-            logging.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
-            use_lora = True
-
-        logging.info(f"Loading model from {model_weights_name_or_path}")
-        device_map, max_memory = get_device_map()
-        # Load model config
-        if use_lora:
-            config = AutoConfig.from_pretrained(
-                model_weights_name_or_path,
-                trust_remote_code=True,
-                pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
-                # See https://github.com/huggingface/transformers/pull/24906
-            )
-        else:
-            config = AutoConfig.from_pretrained(
-                model_weights_name_or_path,
-                trust_remote_code=True,
-            )
-
         super().__init__(config)
-
-        # Load the model weights
-        #  Get the quantization config
-        quant_args = {}
-        torch_dtype = torch_dtype if torch_dtype in ["auto", None] else getattr(torch, torch_dtype)
-
-        if quantization is not None:
-            quant_args = {"load_in_4bit": True} if quantization == 4 else {"load_in_8bit": True}
-            if quantization == 4:
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16 if torch_dtype in ["auto", None] else torch_dtype,
-                )
-            else:
-                bnb_config = BitsAndBytesConfig(
-                    load_in_8bit=True,
-                )
-            logging.info(f"Bits and Bytes config: {json.dumps(bnb_config.to_dict(),indent=4,ensure_ascii=False)}")
-        else:
-            logging.info(f"Loading model with dtype: {torch_dtype}")
-            bnb_config = None
-        
-        model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-            model_weights_name_or_path,
-            device_map=device_map,
-            max_memory=max_memory,
-            torch_dtype=torch_dtype,
-            config=config,
-            trust_remote_code=True,
-            quantization_config=bnb_config,
-            **quant_args,
-        )
-
-        if quantization is not None and not inference:
-            logging.info("Quantizing model")
-            from peft import prepare_model_for_kbit_training
-            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=use_gradient_checkpointing)
-        else:
-            if use_gradient_checkpointing and not inference:
-                model.gradient_checkpointing_enable()
-        
-        # Load lora weights
-        if use_lora:
-            from peft import LoraConfig, PeftModel, TaskType, get_peft_model
-            if not inference:
-                model.enable_input_require_grads() # Enable the gradients for the input embeddings
-            
-            if lora_weights_name_or_path is None:
-                logging.info("No LoRA weights provided, we will use the default random LoRA weights.")
-
-                if lora_target_modules == ["all"]:
-                    logging.warning(
-                        "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
-                    )
-                    from .model_utils import find_all_linear_names
-                    lora_target_modules = find_all_linear_names(model, quantization=quantization)
-                
-                lora_config = LoraConfig(
-                    r=lora_r,
-                    lora_alpha=lora_alpha,
-                    lora_dropout=lora_dropout,
-                    bias="none",
-                    task_type=TaskType.CAUSAL_LM,
-                    target_modules=lora_target_modules,
-                )
-                model = get_peft_model(model, lora_config)
-            else:
-                logging.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
-                model = PeftModel.from_pretrained(model, lora_weights_name_or_path)
-            
-            logging.info(f"\nLoRA config:\n{model.peft_config}\n")
-
-            # Coverting LoRA layers to the desired dtype if bf16 is used for faster training
-            from peft.tuners.lora import LoraLayer
-            from peft.tuners.tuners_utils import BaseTunerLayer
-            for name, module in model.named_modules():
-                if isinstance(module, LoraLayer):
-                    if torch_dtype == torch.bfloat16:
-                        logging.debug(f"Converting LoRA layer {name} to {torch_dtype}")
-                        module = module.to(torch.bfloat16)
-                elif isinstance(module, BaseTunerLayer):
-                    if torch_dtype == torch.bfloat16:
-                        logging.debug(f"Converting LoRA layer {name} to {torch_dtype}")
-                        module = module.to(torch.bfloat16)
-            
-        if not fsdp:
-            for name, module in model.named_modules():
-                if "norm" in name or isinstance(module, nn.LayerNorm):
-                    logging.debug(f"Converting layer {name} to {torch.float32}")
-                    module = module.to(torch.float32)
-                elif any(x in name for x in ["lm_head", "embed_tokens", "wte", "wpe"]):
-                    if hasattr(module, "weight"):
-                        if torch_dtype == torch.bfloat16 and module.weight.dtype == torch.float32:
-                            logging.debug(f"Converting layer {name} to {torch_dtype}")
-                            module = module.to(torch.bfloat16)
-        
-        if inference:
-            if use_lora:
-                if quantization is None:
-                    # If we are not using quantization, we merge the LoRA layers into the model for faster inference.
-                    # This is not possible if we are using 4/8 bit quantization.
-                    logging.info("Merging LoRA layers into the model for faster inference.")
-                    model = model.merge_and_unload()
-                else:
-                    logging.info(
-                        "Quantization is enabled, we will not merge LoRA layers into the model. Inference will be slower."
-                    )
-        else:
-            trainable_params, total_params, trainable_percentage = get_trainable_parameters(model)
-            logging.info(
-                f"---> Trainable params: {trainable_params} || all params: {total_params} ||"
-                f" trainable%: {round(trainable_percentage,6)}\n"
-            )
-
-        if self.model.config.vocab_size < len(tokenizer):
-            model.resize_token_embeddings(len(tokenizer))
-        
-        self._no_split_modules = model._no_split_modules
-        
-        self.model = model
-        self.tokenizer = tokenizer
+        self.model = MistralModel(config)
         self.normalized = normalized
         self.pooling_method = pooling_method
 
@@ -369,8 +161,11 @@ class EmLM(MistralPreTrainedModel):
         
         if passage is not None:
             reps = self.encode(passage) # (bs x (1 + num_positive + num_negative), hidden_size)
-            hard_pairs = self.miner(reps, labels)
-            loss_emb = self.emb_loss(reps, labels, hard_pairs)
+            if labels is not None:
+                hard_pairs = self.miner(reps, labels)
+                loss_emb = self.emb_loss(reps, labels, hard_pairs)
+            else:
+                loss_emb = None
         else:
             loss_emb = None
 
@@ -382,6 +177,11 @@ class EmLM(MistralPreTrainedModel):
             loss_emb=loss_emb,
             loss_gen=loss_gen,
         )
+    
+    def emb_loss_fn(self, reps, labels):
+        hard_pairs = self.miner(reps, labels)
+        loss_emb = self.emb_loss(reps, labels, hard_pairs)
+        return loss_emb
     
     def gradient_checkpointing_enable(self, *args, **kwargs):
         self.model.gradient_checkpointing_enable(*args, **kwargs)

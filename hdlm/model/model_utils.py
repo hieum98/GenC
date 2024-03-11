@@ -1,4 +1,6 @@
 from ast import Tuple
+import logging
+import os
 from typing import Optional
 import torch
 from transformers import PreTrainedModel
@@ -113,3 +115,40 @@ def get_trainable_parameters(model: PreTrainedModel) -> Tuple[int, int, float]:
             trainable_params += num_params
 
     return trainable_params, all_param, 100 * trainable_params / all_param
+
+
+def get_device_map(force_auto_device_map: bool=False, max_memory_MB: int = None) -> Tuple[str, Union[int, List[int]]]:
+    if force_auto_device_map:
+        if os.environ.get("LOCAL_RANK") is not None:
+            # raise ValueError(
+            #    "Found DDP environment and force_auto_device_map is set to True, this configuration "
+            #    "is not supported. If you want to use DPP, set force_auto_device_map to False, so "
+            #    "a copy of the model is loaded in each GPU. If you want the split the model across "
+            #    "GPUs (force_auto_device_map=True), do not use DDP (launch your script with "
+            #    "pyton -m src/run.py config.json). If you are not in a DDP environment but you see "
+            #    "this error, you might have manually set the environment variable 'LOCAL_WORLD_SIZE' to a "
+            #    "number different than 1, please, remove this environment variable or set it to 1"
+            # )
+            if torch.cuda.is_available():
+                n_gpus = torch.cuda.device_count()
+            else:
+                logging.warning("You are in a DDP environment but no GPU is available, this may cause errors later on")
+                n_gpus = 0
+
+            max_memory = {i: max_memory_MB for i in range(n_gpus)}
+            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+            device_map = {"": local_rank}
+            max_memory = {"": max_memory[local_rank]} if max_memory_MB is not None else None
+
+        else:
+            logging.warning(
+                "Using auto device map, we will split the model across GPUs and CPU to fit the model in memory."
+            )
+            device_map = "auto"
+            max_memory = max_memory_MB
+    else:
+        max_memory = None
+        device_map = None
+    logging.info(f"We will load the model using the following device map: {device_map} and max_memory: {max_memory}")
+
+    return device_map, max_memory
