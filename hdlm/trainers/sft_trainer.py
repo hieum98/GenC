@@ -49,7 +49,7 @@ SCHEDULER_NAME = "scheduler.pt"
 SCALER_NAME = "scaler.pt"
 FSDP_MODEL_NAME = "pytorch_model_fsdp"
 
-logger = logging.getLogger(__name__)
+logger = logging.get_logger(__name__)
 
 
 class SFTTrainer(Trainer):

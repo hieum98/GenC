@@ -114,6 +114,7 @@ def train_sft(
         loss_gen_factor=training_args.loss_gen_factor,
         pooling_method=model_args.pooling_method,
         loss_gen_type=training_args.loss_gen_type,
+        temperature=training_args.temperature,
         quantization=training_args.quantization,
         use_gradient_checkpointing=training_args.gradient_checkpointing,
         use_lora=model_args.use_lora,
@@ -127,6 +128,7 @@ def train_sft(
         ),
         inference=False,
         fsdp=len(training_args.fsdp) > 1 or training_args.fsdp_config is not None,
+        attn_implementation=model_args.attn_implementation,
     )
 
     # Handle grad accumulation manually inside forward if use Gradcache.

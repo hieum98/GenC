@@ -9,7 +9,6 @@ from transformers import (AutoConfig,
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.file_utils import ModelOutput
 from pytorch_metric_learning import losses, miners, distances
-from trl import SFTTrainer
 
 from .modules import NextTokenLoss
 
@@ -30,6 +29,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
             pooling_method: str = 'mean', # One of ['cls', 'lasttoken', 'mean', 'weightedmean']
             loss_gen_type: str = "mixed",
             loss_gen_factor: float = 1.0,
+            temperature: float = 0.05,
             ) -> None:
 
         super().__init__(config)
@@ -38,8 +38,8 @@ class MistralEmbeddingLM(MistralForCausalLM):
         self.pooling_method = pooling_method
 
         # Embedding loss
-        self.emb_loss = losses.SupConLoss(
-            temperature=0.05, 
+        self.emb_loss = losses.NTXentLoss(
+            temperature=temperature, 
             distance=distances.CosineSimilarity()
         )
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)

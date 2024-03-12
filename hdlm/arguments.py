@@ -65,6 +65,7 @@ class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
         )
+    attn_implementation: str = field(default='sdpa', metadata={"help": "eager/sdpa/flash_attention_2"})
     normalized: bool = field(default=True, metadata={"help": "Whether to normalize the representations"})
     pooling_method: str = field(default='weightedmean', metadata={"help": "Pooling method for sentences"})
     use_lora: bool = field(
@@ -107,7 +108,7 @@ class ModelArguments:
         metadata={"help": "The dropout probability for Lora layers."},
         )
     torch_dtype: Optional[str] = field(
-        default=None,
+        default='bfloat16',
         metadata={
             "help": (
                 "Override the default `torch.dtype` and load the model under this"
@@ -151,3 +152,10 @@ class CustomTrainingArguments(TrainingArguments):
         default=1,
         metadata={"help": "The mini batch size for Gradcache."}
     )
+    temperature: float = field(
+        default=0.02, 
+        metadata={
+            "help": "Similarity will be sim = sim/temperature before using them to compute loss."
+            " A higher temperature can reduce the value of similarity between texts in downstream tasks."
+            }
+            )

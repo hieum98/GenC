@@ -34,6 +34,7 @@ def load_model(
         loss_gen_factor: float = 1.0,
         pooling_method: str = "mean",
         loss_gen_type: str = "mixed",
+        temperature: float = 0.05,
         quantization: Optional[int] = None,
         use_gradient_checkpointing: bool = False,
         use_lora: bool = False,
@@ -44,7 +45,8 @@ def load_model(
         lora_dropout: Optional[float] = 0.05,
         torch_dtype: Optional[str] = "bfloat16",
         inference: bool = False,
-        fsdp: bool = False,):
+        fsdp: bool = False,
+        **kwargs,):
     # Sanity checks
     if isinstance(quantization, str):
         quantization = int(quantization)
@@ -97,22 +99,18 @@ def load_model(
         logging.info(f"Loading model with dtype: {torch_dtype}")
         bnb_config = None
     
-    model_args = {
-        'normalized': normalized,
-        'pooling_method': pooling_method,
-        'loss_gen_type': loss_gen_type,
-        'loss_gen_factor': loss_gen_factor,
-    }
+    model_args = [normalized, pooling_method, loss_gen_type, loss_gen_factor, temperature]
     model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
         model_weights_name_or_path,
-        model_args=model_args,
+        *model_args,
         device_map=device_map,
         max_memory=max_memory,
         torch_dtype=torch_dtype,
         config=config,
-        trust_remote_code=True,
+        # trust_remote_code=True,
         quantization_config=bnb_config,
         **quant_args,
+        **kwargs,
     )
 
     if quantization is not None and not inference:

@@ -1,7 +1,6 @@
-from ast import Tuple
 import logging
 import os
-from typing import Optional
+from typing import List, Optional, Tuple, Union
 import torch
 from transformers import PreTrainedModel
 
