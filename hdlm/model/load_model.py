@@ -6,17 +6,34 @@ import torch.nn as nn
 from transformers import (
     BitsAndBytesConfig, 
     AutoConfig,
-    AutoModelForCausalLM,
+    AutoTokenizer,
     PreTrainedModel,
     PreTrainedTokenizer,
 )
 
+from .em_lm import MistralEmbeddingLM
 from .model_utils import get_trainable_parameters, get_device_map
+
+
+BASE_BOS: str = "<s>"
+TURN_SEP: str = "\n"
+
+USER_BOS: str = "<|user|>\n"
+USER_EOS: str = "" # "</s>" for Zephyr format
+
+EMBED_BOS: str = "\n<|embed|>\n"
+EMBED_EOS: str = "</e>"
+
+ASSISTANT_BOS: str = "\n<|assistant|>\n"
+ASSISTANT_EOS: str = "</s>"
 
 
 def load_model(
         model_weights_name_or_path: str,
-        tokenizer: PreTrainedTokenizer,
+        normalized: bool = True,
+        loss_gen_factor: float = 1.0,
+        pooling_method: str = "mean",
+        loss_gen_type: str = "mixed",
         quantization: Optional[int] = None,
         use_gradient_checkpointing: bool = False,
         use_lora: bool = False,
@@ -58,7 +75,7 @@ def load_model(
         )
 
     # Load the model weights
-    #  Get the quantization config
+    # Get the quantization config
     quant_args = {}
     torch_dtype = torch_dtype if torch_dtype in ["auto", None] else getattr(torch, torch_dtype)
 
@@ -80,8 +97,15 @@ def load_model(
         logging.info(f"Loading model with dtype: {torch_dtype}")
         bnb_config = None
     
-    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+    model_args = {
+        'normalized': normalized,
+        'pooling_method': pooling_method,
+        'loss_gen_type': loss_gen_type,
+        'loss_gen_factor': loss_gen_factor,
+    }
+    model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
         model_weights_name_or_path,
+        model_args=model_args,
         device_map=device_map,
         max_memory=max_memory,
         torch_dtype=torch_dtype,
@@ -172,5 +196,33 @@ def load_model(
             f" trainable%: {round(trainable_percentage,6)}\n"
         )
 
+    # Load tokenizer
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
+        model_weights_name_or_path,
+        padding_side="right", # Has to be right so masking of instruction tokens works correctly
+        trust_remote_code=True,
+    )
+
+    if tokenizer.pad_token_id is None:
+        if "<|padding|>" in tokenizer.get_vocab():
+            # StabilityLM specific fix
+            tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
+        else:
+            logging.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+            tokenizer.pad_token = tokenizer.bos_token
+            tokenizer.pad_token_id = tokenizer.bos_token_id
+    
+    # Add special tokens
+    additional_special_tokens = [BASE_BOS, TURN_SEP, USER_BOS, USER_EOS, EMBED_BOS, EMBED_EOS, ASSISTANT_BOS, ASSISTANT_EOS]
+    for item in additional_special_tokens:
+        if item in tokenizer.vocab:
+            additional_special_tokens.remove(item)
+    tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
+    config.num_vocab += len(additional_special_tokens)
+
     if model.config.vocab_size < len(tokenizer):
         model.resize_token_embeddings(len(tokenizer))
+    
+    return model, tokenizer, config
+
+

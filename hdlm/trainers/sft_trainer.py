@@ -7,7 +7,7 @@ from packaging import version
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from torch.utils.data import Dataset, RandomSampler
+from torch.utils.data import DataLoader, Dataset, RandomSampler
 from transformers import (Trainer, 
                           PreTrainedModel, 
                           TrainingArguments,
@@ -187,7 +187,10 @@ class SFTTrainer(Trainer):
 
                 no_sync_except_last = torch.distributed.is_initialized()
                 world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
-                loss_emb = self.gc(inputs['passage'], no_sync_except_last=no_sync_except_last, labels=inputs['labels']) / world_size
+                passage = inputs['passage']
+                indicates = passage.pop('indices_tuple', None)
+                labels  = passage.pop('labels', None)
+                loss_emb = self.gc(passage, no_sync_except_last=no_sync_except_last, labels=labels, indicates=indicates) / world_size
                 
                 self.state.loss_emb = getattr(self.state, "loss_emb", torch.tensor(0.0).to(loss.device))
                 self.state.loss_gen = getattr(self.state, "loss_gen", torch.tensor(0.0).to(loss.device))

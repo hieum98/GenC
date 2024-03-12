@@ -4,33 +4,36 @@ import os
 from typing import Dict, List, Optional, Tuple, Union
 import torch 
 from transformers import (AutoConfig, 
-                          MistralModel,
-                          MistralPreTrainedModel,)
+                          MistralPreTrainedModel,
+                          MistralForCausalLM,)
+from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.file_utils import ModelOutput
 from pytorch_metric_learning import losses, miners, distances
+from trl import SFTTrainer
 
 from .modules import NextTokenLoss
 
 @dataclass
 class EmLMTrainOutput(ModelOutput):
     reps: Optional[torch.Tensor] = None
+    gen_outputs: Optional[CausalLMOutputWithPast] = None
     loss: Optional[torch.Tensor] = None
     loss_emb: Optional[torch.Tensor] = None
     loss_gen: Optional[torch.Tensor] = None
 
 
-class MisTralEmbeddingLM(MistralPreTrainedModel):
+class MistralEmbeddingLM(MistralForCausalLM):
     def __init__(
             self,
             config: AutoConfig,
             normalized: bool = True,
             pooling_method: str = 'mean', # One of ['cls', 'lasttoken', 'mean', 'weightedmean']
             loss_gen_type: str = "mixed",
-            loss_gen_factor: float = None,
+            loss_gen_factor: float = 1.0,
             ) -> None:
 
         super().__init__(config)
-        self.model = MistralModel(config)
+        # self.model = MistralForCausalLM(config)
         self.normalized = normalized
         self.pooling_method = pooling_method
 
@@ -95,9 +98,9 @@ class MisTralEmbeddingLM(MistralPreTrainedModel):
     def encode(self, features: Dict):
         """
         features: {
-            "input_ids": (bs x (1 + num_positive + num_negative), max_seq_len),
-            "attention_mask": (bs x (1 + num_positive + num_negative), max_seq_len),
-            "instruction_lens": (bs x (1 + num_positive + num_negative), ),
+            "input_ids": ((bs  + num_positive + num_negative), max_seq_len),
+            "attention_mask": ((bs  + num_positive + num_negative), max_seq_len),
+            "instruction_lens": ((bs  + num_positive + num_negative), ),
             }
         """
         if features is None: return None
@@ -107,7 +110,7 @@ class MisTralEmbeddingLM(MistralPreTrainedModel):
         kwargs = {'input_ids': features.get('input_ids'), 
                   'attention_mask': attention_mask,
                   'is_causal': False}
-        outs = self.model(**kwargs)[0] # (bs x (1 + num_positive + num_negative), max_seq_len, hidden_size)
+        outs = self.model(**kwargs)[0] # ((bs  + num_positive + num_negative), max_seq_len, hidden_size)
 
         # Mask out the instruction tokens for pooling
         if instruction_lens is not None:
@@ -130,16 +133,17 @@ class MisTralEmbeddingLM(MistralPreTrainedModel):
 
     def forward(self,
                 passage: Dict[str, torch.Tensor] = None,
-                labels:  torch.Tensor = None, # (bs x (1 + num_positive + num_negative), )
+                labels:  torch.Tensor = None, # ((bs  + num_positive + num_negative), )
                 generative: Dict[str, torch.Tensor] = None,
                 ):
         """
         passage: {
-            "input_ids": (bs x (1 + num_positive + num_negative), max_seq_len),
-            "attention_mask": (bs x (1 + num_positive + num_negative), max_seq_len),
-            "instruction_lens": (bs x (1 + num_positive + num_negative), ),
+            "input_ids": ((bs + num_positive + num_negative), max_seq_len),
+            "attention_mask": ((bs + num_positive + num_negative), max_seq_len),
+            "instruction_lens": ((bs + num_positive + num_negative), ),
+            "labels": ((bs + num_positive + num_negative), )
+            "indices_tuple": Tuple of tensors (a1_idx, p_idx, a2_idx, n_idx). The first 2 tensors are the indices which form all positive pairs. The second 2 tensors are the indices which form all negative pairs
             },
-        labels: (bs x (1 + num_positive + num_negative), )
         generative: {
             "input_ids": (bs, max_seq_len),
             "attention_mask": (bs, max_seq_len),
@@ -149,38 +153,51 @@ class MisTralEmbeddingLM(MistralPreTrainedModel):
         """
 
         if generative is not None:
-            gen_logits = self.model(input_ids=generative['input_ids'], 
+            gen_outputs = super().forward(input_ids=generative['input_ids'], 
                                     attention_mask=generative['attention_mask'], 
-                                    **self.gen_add_kwargs).logits
+                                    **self.gen_add_kwargs)
+            gen_logits = gen_outputs.logits
             labels = generative.pop('labels')
             loss_weight_mask = generative.pop('loss_weight_mask')
             
             loss_gen = self.gen_loss_fn(labels, gen_logits, loss_weight_mask)
         else:
             loss_gen = None
+            gen_outputs = None
         
         if passage is not None:
-            reps = self.encode(passage) # (bs x (1 + num_positive + num_negative), hidden_size)
+            indicates = passage.pop('indices_tuple', None)
+            labels  = passage.pop('labels', None)
+            reps = self.encode(passage) # ((bs + num_positive + num_negative), hidden_size)
             if labels is not None:
                 hard_pairs = self.miner(reps, labels)
                 loss_emb = self.emb_loss(reps, labels, hard_pairs)
+            elif indicates is not None:
+                loss_emb = self.emb_loss(reps, indices_tuple=indicates)
             else:
                 loss_emb = None
         else:
+            reps = None
             loss_emb = None
 
         loss = sum([x for x in [loss_emb, loss_gen] if x is not None])
 
         return EmLMTrainOutput(
             reps=reps,
+            gen_outputs=gen_outputs,
             loss=loss,
             loss_emb=loss_emb,
             loss_gen=loss_gen,
         )
     
-    def emb_loss_fn(self, reps, labels):
-        hard_pairs = self.miner(reps, labels)
-        loss_emb = self.emb_loss(reps, labels, hard_pairs)
+    def emb_loss_fn(self, reps, labels=None, indicates=None):
+        if labels is not None:
+                hard_pairs = self.miner(reps, labels)
+                loss_emb = self.emb_loss(reps, labels, hard_pairs)
+        elif indicates is not None:
+            loss_emb = self.emb_loss(reps, indices_tuple=indicates)
+        else:
+            raise ValueError("Either labels or indicates must be provided")
         return loss_emb
     
     def gradient_checkpointing_enable(self, *args, **kwargs):

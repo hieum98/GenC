@@ -2,11 +2,12 @@ from dataclasses import dataclass
 import logging
 import math
 import random
-from typing import List, Tuple, Union
+from typing import Iterator, List, Tuple, Union
 import numpy as np
 import torch
 from transformers import PreTrainedTokenizer, BatchEncoding
 from transformers.utils import PaddingStrategy
+from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 import datasets
 
 from .utils import find_data_idx
@@ -60,6 +61,8 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                 self.total_gen_size = 0
                 self.gen_dataset = None
         
+        assert self.emb_dataset is not None or self.gen_dataset is not None, "At least one of the datasets should not be None"
+
         self.total_size = max(self.total_emb_size, self.total_gen_size)
         
         self.args = args
@@ -70,7 +73,7 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
         self.set_indices()
 
     def set_indices(self):
-        if self.emb_dataset_size > self.gen_dataset_size:
+        if self.total_emb_size > self.total_gen_size:
             indices_gen = list(range(self.total_gen_size))
             if torch.distributed.is_initialized():
                 # world_size and rank are global (i.e. across all nodes and processes)
@@ -79,8 +82,13 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                 indices_gen = indices_gen[rank::world_size]
             # shuffle indices to make sure that the batch is not always the same
             self.indices_gen = set(random.shuffle(indices_gen))
-        elif self.emb_dataset_size < self.gen_dataset_size:
-            indices_emb = list(range(self.total_emb_size))
+        elif self.total_emb_size < self.total_gen_size:
+            generator = torch.Generator()
+            generator.manual_seed(0)
+            # Create random indices for each dataset
+            indices_emb = [torch.randperm(n, generator=generator).tolist() for n in self.emb_dataset_size]
+            # Increase the indices to be indices of the concatenated dataset
+            indices_emb = [[i + sum(self.emb_dataset_size[:j]) for i in indices_emb[j]] for j in range(len(self.emb_dataset_size))]
             if torch.distributed.is_initialized():
                 # world_size and rank are global (i.e. across all nodes and processes)
                 world_size = torch.distributed.get_world_size()
@@ -92,12 +100,16 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
     def __len__(self):
         return self.total_size
 
-    def __getitem__(self, idx) -> Tuple[Union[str, List[str]], Union[List[str], List[List[str]]], Union[str, List[str]]]:
+    def __getitem__(self, idx):
         query, pos_passage, neg_passage, generative = None, None, None, None
 
-        if self.mode in ['unifined', 'embedding']:
+        if self.mode in ['unifined', 'embedding'] and self.emb_dataset is not None:
+            #TODO: Add label processing here
             if hasattr(self, 'indices_emb'):
-                idx_emb = self.indices_emb.pop()
+                try:
+                    idx_emb = self.indices_emb.pop()
+                except:
+                    idx_emb = random.randint(0, self.total_emb_size - 1)
             else:
                 idx_emb = idx
             dataset_idx, idx_emb = find_data_idx(self.emb_dataset_size, idx_emb)
@@ -135,9 +147,12 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                     neg = [x[:self.max_char_len] for x in neg]
                 neg_passage.append(neg)
         
-        if self.mode in ['unifined', 'generative']:
+        if self.mode in ['unifined', 'generative'] and self.gen_dataset is not None:
             if hasattr(self, 'indices_gen'):
-                idx_gen = self.indices_gen.pop()
+                try:
+                    idx_emb = self.indices_emb.pop()
+                except:
+                    idx_emb = random.randint(0, self.total_emb_size - 1)
             else:
                 idx_gen = idx
             dataset_idx, idx_gen = find_data_idx(self.gen_dataset_size, idx_gen)
@@ -209,6 +224,7 @@ class CustomCollatorForSFT:
                         f" {model_inputs['input_ids']}"
                     )
                 model_inputs['instruction_lens'] = torch.tensor(len(prompt))
+                #TODO: Add label processing here
             else:
                 prompt_lens = [
                     len(self.tokenizer.tokenize(self.user_bos + z + self.user_eos + self.assistant_bos, add_special_tokens=False) if i > 0 
@@ -290,40 +306,46 @@ class CustomCollatorForSFT:
 
         # flatten if list of lists
         if isinstance(pos_passage[0], list):
+            n_pos_passages = [len(p) for p in pos_passage] # (bs, )
             pos_passage = sum(pos_passage, [])
         if isinstance(neg_passage[0], list):
+            n_neg_passages = [len(p) for p in neg_passage] # (bs, )
             neg_passage = sum(neg_passage, [])
 
         features = {}
         if query[0] is not None:
+            #TODO: Add label processing here
             query = [self.prepare_example(item, is_emb=True) for item in query] # (bs, )
             pos_passage = [self.prepare_example(item, is_emb=True) for item in pos_passage] # (bs x n_pos_passage, )
             neg_passage = [self.prepare_example(item, is_emb=True) for item in neg_passage] # (bs x n_neg_passage, )
-            
-            query = self.tokenizer.pad(
-                query, 
+            passage = query + pos_passage + neg_passage
+            padded_passage = self.tokenizer.pad(
+                passage, 
                 padding=self.padding,
                 max_length=self.passage_max_len,
                 pad_to_multiple_of=8,
                 return_tensors="pt"
-                ) # {'input_ids': (bs, max_len), 'attention_mask': (bs, max_len), 'instruction_lens': (bs, )}
-            pos_passage = self.tokenizer.pad(
-                pos_passage, 
-                padding=self.padding,
-                max_length=self.passage_max_len,
-                pad_to_multiple_of=8,
-                return_tensors="pt"
-                ) # {'input_ids': (bs x n_pos_passage, max_len), 'attention_mask': (bs x n_pos_passage, max_len), 'instruction_lens': (bs x n_pos_passage, )}
-            neg_passage = self.tokenizer.pad(
-                neg_passage, 
-                padding=self.padding,
-                max_length=self.passage_max_len,
-                pad_to_multiple_of=8,
-                return_tensors="pt"
-                ) # {'input_ids': (bs x n_neg_passage, max_len), 'attention_mask': (bs x n_neg_passage, max_len), 'instruction_lens': (bs x n_neg_passage, )}
-            features['query'] = query
-            features['pos_passage'] = pos_passage
-            features['neg_passage'] = neg_passage
+                ) # {'input_ids': (bs + n_pos_passage + n_neg_passage, max_len), 'attention_mask': (bs + n_pos_passage + n_neg_passage, max_len), 'instruction_lens': (bs + n_pos_passage + n_neg_passage,) 'labels': (bs + n_pos_passage + n_neg_passage,)}
+
+            if 'labels' not in passage[0]:
+                bs = len(query)
+                p = range(bs, bs + sum(n_pos_passages))
+                a1 = [[i] * n_pos_passages[i] for i in range(bs)]
+                a1 = sum(a1, [])
+                p = torch.tensor(p)
+                a1 = torch.tensor(a1)
+
+                n = range(bs + sum(n_pos_passages), bs + sum(n_pos_passages) + sum(n_neg_passages))
+                a2 = [[i] * n_neg_passages[i] for i in range(bs)]
+                a2 = sum(a2, [])
+                n = torch.tensor(n)
+                a2 = torch.tensor(a2)
+            else:
+                labels = padded_passage['labels']
+                a1, p, a2, n = lmu.get_all_pairs_indices(labels=labels)
+                
+            padded_passage['indices_tuple'] = (a1, p, a2, n)
+            features['passage'] = padded_passage
         
         if generative[0] is not None:
             generative = [self.prepare_example(item, is_emb=False) for item in generative] # (bs, )
@@ -380,7 +402,71 @@ class CustomCollatorForSFT:
             return features
 
             
+@dataclass
+class CustomRandomSampler(torch.utils.data.sampler.RandomSampler):
+    """
+    Sampler used when training on multiple datasets to ensure each 
+    batch only contains samples from one dataset for the majority of cases.
+    """
+    total_batch_size: int = 8
+    ds_lens: List[int] = None
 
+    def __iter__(self) -> Iterator[int]:
+        
+        if not hasattr(self, "generator") or self.generator is None:
+            seed = int(torch.empty((), dtype=torch.int64).random_().item())
+            generator = torch.Generator()
+            generator.manual_seed(seed)
+        else:
+            generator = self.generator
+
+        # We have multiple datasets each with a different number of samples
+        # e.g. [100, 150, 50]
+        # We would like to sample from them such that as much as possible each batch
+        # only has samples from the same dataset.
+        # For example if our batch size is 4 then
+        # indices might be [0,1,2,3,100,101,102,103,150,151,152,153,50,51,52,53]
+        # To do so:
+        # 1. Shuffle the indices of each dataset separately
+        # 2. Create batches with only samples from one dataset
+        # 3. Keep the remaining samples which do not fit into a batch separate
+        # 4. Then create mixed batches from the remaining samples
+        # 5. Then yield randomly from all the batches
+        # Testing:
+        # ds_lens = [100, 150, 50]
+        # batch_size = 8
+        # Create random indices for each dataset
+        ds_indices = [torch.randperm(n, generator=generator).tolist() for n in self.ds_lens]
+        # Increase the indices to be indices of the concatenated dataset
+        ds_indices = [[i + sum(self.ds_lens[:j]) for i in ds_indices[j]] for j in range(len(self.ds_lens))]
+        # Create batches with only samples from one dataset
+        ds_batches = [list(torch.split(torch.tensor(ds_indices[j]), self.total_batch_size)) for j in range(len(self.ds_lens))]
+        # Create separate batches from the remaining samples
+        incomplete_indices = []
+        for b in ds_batches:
+            if len(b[-1]) < self.total_batch_size:
+                incomplete_indices.append(b.pop())
+
+        if incomplete_indices:
+            # Randomly permute the incomplete indices
+            order = torch.randperm(len(incomplete_indices), generator=generator).tolist()
+            incomplete_indices = torch.cat([incomplete_indices[i] for i in order])
+            # Then split again into groups of four & drop the last one if it is incomplete
+            mixed_batches = list(torch.split(torch.tensor(incomplete_indices), self.total_batch_size))
+            if len(mixed_batches[-1]) < self.total_batch_size:
+                mixed_batches.pop()
+            # Merge all batches to look like [...tensor([259, 273, 284, 289]), tensor([262, 280, 295, 258]), ...]
+            ds_batches = sum(ds_batches, []) + mixed_batches
+            logging.info(f"Using global batch size {self.total_batch_size} created {len(ds_batches) - len(mixed_batches)} single-dataset batches & {len(mixed_batches)} mixed dataset batches.")
+        else:
+            ds_batches = sum(ds_batches, [])
+            logging.info(f"Using global batch size {self.total_batch_size} created {len(ds_batches)} single-dataset batches.")
+
+        # Randomly permute the order of all batches, then merge them to look like tensor([...259, 273, 284, 289, 262, 280, 295, 258...])
+        order = torch.randperm(len(ds_batches), generator=generator).tolist()
+        ds_batches = [int(i) for i in torch.cat([ds_batches[i] for i in order]).tolist()]
+        # Yield the indices
+        yield from ds_batches
     
             
             
