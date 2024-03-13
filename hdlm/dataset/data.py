@@ -21,7 +21,7 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                 mode: str = 'embedding',
                 max_seq_len: int = 2048):
         
-        if mode=='unifined':
+        if mode=='unified':
             assert len(dataset) == 2, "Dataset should be a tuple of two datasets"
             emb_dataset, gen_dataset = dataset
         elif mode=='embedding':
@@ -74,14 +74,15 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
 
     def set_indices(self):
         if self.total_emb_size > self.total_gen_size:
-            indices_gen = list(range(self.total_gen_size))
+            generator = torch.Generator()
+            generator.manual_seed(0)
+            indices_gen = torch.randperm(self.total_gen_size, generator=generator).tolist()
             if torch.distributed.is_initialized():
                 # world_size and rank are global (i.e. across all nodes and processes)
                 world_size = torch.distributed.get_world_size()
                 rank = torch.distributed.get_rank()
                 indices_gen = indices_gen[rank::world_size]
-            # shuffle indices to make sure that the batch is not always the same
-            self.indices_gen = set(random.shuffle(indices_gen))
+            self.indices_gen = indices_gen
         elif self.total_emb_size < self.total_gen_size:
             generator = torch.Generator()
             generator.manual_seed(0)
@@ -94,8 +95,7 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                 world_size = torch.distributed.get_world_size()
                 rank = torch.distributed.get_rank()
                 indices_emb = indices_emb[rank::world_size]
-            # shuffle indices to make sure that the batch is not always the same
-            self.indices_emb = set(random.shuffle(indices_emb))
+            self.indices_emb = indices_emb
 
     def __len__(self):
         return self.total_size
@@ -103,7 +103,7 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         query, pos_passage, neg_passage, generative = None, None, None, None
 
-        if self.mode in ['unifined', 'embedding'] and self.emb_dataset is not None:
+        if self.mode in ['unified', 'embedding'] and self.emb_dataset is not None:
             #TODO: Add label processing here
             if hasattr(self, 'indices_emb'):
                 try:
@@ -147,12 +147,12 @@ class CustomDatasetForSFT(torch.utils.data.Dataset):
                     neg = [x[:self.max_char_len] for x in neg]
                 neg_passage.append(neg)
         
-        if self.mode in ['unifined', 'generative'] and self.gen_dataset is not None:
+        if self.mode in ['unified', 'generative'] and self.gen_dataset is not None:
             if hasattr(self, 'indices_gen'):
                 try:
-                    idx_emb = self.indices_emb.pop()
+                    idx_gen = self.indices_gen.pop()
                 except:
-                    idx_emb = random.randint(0, self.total_emb_size - 1)
+                    idx_gen = random.randint(0, self.total_gen_size - 1)
             else:
                 idx_gen = idx
             dataset_idx, idx_gen = find_data_idx(self.gen_dataset_size, idx_gen)
@@ -399,7 +399,7 @@ class CustomCollatorForSFT:
                 )
             features['generative'] = generative
 
-            return features
+        return features
 
             
 @dataclass

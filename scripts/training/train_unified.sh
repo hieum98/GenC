@@ -4,12 +4,14 @@ conda activate llm
 
 export WANDB_PROJECT="em_lm"
 
-# accelerate launch \
-#     --config_file /home/hieum/uonlp/LLM_Emb/scripts/configs/dpp_bf16_3gpus.yaml \
-python \
+accelerate launch \
+    --config_file /home/hieum/uonlp/LLM_Emb/scripts/configs/dpp_bf16_3gpus.yaml \
     -m hdlm.run \
     --output_dir /home/hieum/uonlp/LLM_Emb/hdlm/outputs/dpp_bf16_3gpus \
     --model_name_or_path mistralai/Mistral-7B-v0.1 \
+    --use_lora \
+    --lora_target_modules all \
+    --quantization 4 \
     --train_data /home/hieum/uonlp/LLM_Emb/hdlm/toy_data \
     --learning_rate 2e-5 \
     --lr_scheduler_type linear \

@@ -104,7 +104,7 @@ class ModelArguments:
         metadata={"help": "The alpha parameter for Lora scaling."},
         )
     lora_dropout: Optional[float] = field(
-        default=0.1,
+        default=0.05,
         metadata={"help": "The dropout probability for Lora layers."},
         )
     torch_dtype: Optional[str] = field(

@@ -76,13 +76,36 @@ def load_model(
             trust_remote_code=True,
         )
 
+    # Load tokenizer
+    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
+        model_weights_name_or_path,
+        padding_side="right", # Has to be right so masking of instruction tokens works correctly
+        trust_remote_code=True,
+    )
+
+    if tokenizer.pad_token_id is None:
+        if "<|padding|>" in tokenizer.get_vocab():
+            # StabilityLM specific fix
+            tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
+        else:
+            logging.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+            tokenizer.pad_token = tokenizer.bos_token
+            tokenizer.pad_token_id = tokenizer.bos_token_id
+    
+    # Add special tokens
+    additional_special_tokens = [BASE_BOS, TURN_SEP, USER_BOS, USER_EOS, EMBED_BOS, EMBED_EOS, ASSISTANT_BOS, ASSISTANT_EOS]
+    for item in additional_special_tokens:
+        if item in tokenizer.vocab:
+            additional_special_tokens.remove(item)
+    if len(additional_special_tokens) > 0:
+        tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
+    new_vocab_size = len(tokenizer)
+
     # Load the model weights
     # Get the quantization config
-    quant_args = {}
     torch_dtype = torch_dtype if torch_dtype in ["auto", None] else getattr(torch, torch_dtype)
 
     if quantization is not None:
-        quant_args = {"load_in_4bit": True} if quantization == 4 else {"load_in_8bit": True}
         if quantization == 4:
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -99,7 +122,7 @@ def load_model(
         logging.info(f"Loading model with dtype: {torch_dtype}")
         bnb_config = None
     
-    model_args = [normalized, pooling_method, loss_gen_type, loss_gen_factor, temperature]
+    model_args = [normalized, pooling_method, loss_gen_type, loss_gen_factor, temperature, new_vocab_size]
     model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
         model_weights_name_or_path,
         *model_args,
@@ -109,7 +132,6 @@ def load_model(
         config=config,
         # trust_remote_code=True,
         quantization_config=bnb_config,
-        **quant_args,
         **kwargs,
     )
 
@@ -193,33 +215,11 @@ def load_model(
             f"---> Trainable params: {trainable_params} || all params: {total_params} ||"
             f" trainable%: {round(trainable_percentage,6)}\n"
         )
-
-    # Load tokenizer
-    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
-        model_weights_name_or_path,
-        padding_side="right", # Has to be right so masking of instruction tokens works correctly
-        trust_remote_code=True,
-    )
-
-    if tokenizer.pad_token_id is None:
-        if "<|padding|>" in tokenizer.get_vocab():
-            # StabilityLM specific fix
-            tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
-        else:
-            logging.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
-            tokenizer.pad_token = tokenizer.bos_token
-            tokenizer.pad_token_id = tokenizer.bos_token_id
-    
-    # Add special tokens
-    additional_special_tokens = [BASE_BOS, TURN_SEP, USER_BOS, USER_EOS, EMBED_BOS, EMBED_EOS, ASSISTANT_BOS, ASSISTANT_EOS]
-    for item in additional_special_tokens:
-        if item in tokenizer.vocab:
-            additional_special_tokens.remove(item)
-    tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
-    config.num_vocab += len(additional_special_tokens)
-
-    if model.config.vocab_size < len(tokenizer):
+        
+    if len(additional_special_tokens) > 0:
         model.resize_token_embeddings(len(tokenizer))
+        config.vocab_size += len(additional_special_tokens)
+        model.config.vocab_size = len(tokenizer)
     
     return model, tokenizer, config
 

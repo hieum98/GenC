@@ -30,6 +30,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
             loss_gen_type: str = "mixed",
             loss_gen_factor: float = 1.0,
             temperature: float = 0.05,
+            new_vocab_size: Optional[int] = None,
             ) -> None:
 
         super().__init__(config)
@@ -45,13 +46,8 @@ class MistralEmbeddingLM(MistralForCausalLM):
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
 
         # Generation loss
-        self.gen_add_kwargs = {"return_dict": True}
-        self.gen_loss_fn = NextTokenLoss(
-                self.model.config.vocab_size, loss_gen_type, loss_gen_factor
-            )
-
-        # Required for accelerate DeepSpeed integration
-        self.config = self.model.config
+        vocab_size = new_vocab_size if new_vocab_size is not None else config.vocab_size
+        self.gen_loss_fn = NextTokenLoss(vocab_size, loss_gen_type, loss_gen_factor)
 
     def pooling(
         self, hidden_state: torch.Tensor, attention_mask: torch.Tensor = None, recast: bool = False
@@ -132,53 +128,55 @@ class MistralEmbeddingLM(MistralForCausalLM):
         return reps.contiguous()
 
     def forward(self,
-                passage: Dict[str, torch.Tensor] = None,
-                labels:  torch.Tensor = None, # ((bs  + num_positive + num_negative), )
-                generative: Dict[str, torch.Tensor] = None,
+                input_ids: torch.LongTensor = None,
+                attention_mask: Optional[torch.Tensor] = None,
+                position_ids: Optional[torch.LongTensor] = None,
+                past_key_values: Optional[List[torch.FloatTensor]] = None,
+                inputs_embeds: Optional[torch.FloatTensor] = None,
+                labels: Optional[torch.LongTensor] = None,
+                use_cache: Optional[bool] = None,
+                output_attentions: Optional[bool] = None,
+                output_hidden_states: Optional[bool] = None,
+                return_dict: Optional[bool] = None,
+                is_emb: bool = True,
+                is_gen: bool = False,
+                loss_weight_mask: Optional[torch.Tensor] = None,
+                instruction_lens: Optional[torch.Tensor] = None,
+                constrastive_labels: Optional[torch.Tensor] = None,
+                indices_tuple: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
                 ):
-        """
-        passage: {
-            "input_ids": ((bs + num_positive + num_negative), max_seq_len),
-            "attention_mask": ((bs + num_positive + num_negative), max_seq_len),
-            "instruction_lens": ((bs + num_positive + num_negative), ),
-            "labels": ((bs + num_positive + num_negative), )
-            "indices_tuple": Tuple of tensors (a1_idx, p_idx, a2_idx, n_idx). The first 2 tensors are the indices which form all positive pairs. The second 2 tensors are the indices which form all negative pairs
-            },
-        generative: {
-            "input_ids": (bs, max_seq_len),
-            "attention_mask": (bs, max_seq_len),
-            "labels": (bs, max_seq_len),
-            "loss_weight_mask": (bs, max_seq_len),
-            }
-        """
+        reps = None
+        loss_emb = None
+        loss_gen = None
+        gen_outputs = None
 
-        if generative is not None:
-            gen_outputs = super().forward(input_ids=generative['input_ids'], 
-                                    attention_mask=generative['attention_mask'], 
-                                    **self.gen_add_kwargs)
+        assert is_emb or is_gen, "Either is_emb or is_gen must be True"
+        if is_emb:
+            inputs_features = {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "instruction_lens": instruction_lens,
+            }
+            reps = self.encode(inputs_features)
+            if constrastive_labels is not None or indices_tuple is not None:
+                loss_emb = self.emb_loss_fn(reps, labels=constrastive_labels, indicates=indices_tuple)
+        if is_gen:
+            gen_add_kwargs = {
+                "return_dict": True,
+                "position_ids": position_ids,
+                "past_key_values": past_key_values,
+                "inputs_embeds": inputs_embeds,
+                "use_cache": use_cache,
+                "output_attentions": output_attentions,
+                "output_hidden_states": output_hidden_states
+                }
+            gen_outputs = super().forward(
+                input_ids=input_ids, 
+                attention_mask=attention_mask, 
+                **gen_add_kwargs
+                )
             gen_logits = gen_outputs.logits
-            labels = generative.pop('labels')
-            loss_weight_mask = generative.pop('loss_weight_mask')
-            
             loss_gen = self.gen_loss_fn(labels, gen_logits, loss_weight_mask)
-        else:
-            loss_gen = None
-            gen_outputs = None
-        
-        if passage is not None:
-            indicates = passage.pop('indices_tuple', None)
-            labels  = passage.pop('labels', None)
-            reps = self.encode(passage) # ((bs + num_positive + num_negative), hidden_size)
-            if labels is not None:
-                hard_pairs = self.miner(reps, labels)
-                loss_emb = self.emb_loss(reps, labels, hard_pairs)
-            elif indicates is not None:
-                loss_emb = self.emb_loss(reps, indices_tuple=indicates)
-            else:
-                loss_emb = None
-        else:
-            reps = None
-            loss_emb = None
 
         loss = sum([x for x in [loss_emb, loss_gen] if x is not None])
 

@@ -1,8 +1,10 @@
 import math
+import os
 import shutil
 import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import warnings
 from packaging import version
 import torch
 import torch.nn as nn
@@ -13,17 +15,20 @@ from transformers import (Trainer,
                           TrainingArguments,
                           DataCollator,
                           PreTrainedTokenizerBase,)
+from transformers.trainer import _is_peft_model
+import huggingface_hub.utils as hf_hub_utils
 from transformers.integrations.deepspeed import deepspeed_init, deepspeed_load_checkpoint
 from transformers.integrations import hp_params
-from transformers.utils import logging, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled, is_torch_tpu_available
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, HPSearchBackend, TrainOutput, has_length, speed_metrics
+from transformers.integrations.tpu import tpu_spmd_dataloader
+from transformers.utils import logging, is_accelerate_available, is_apex_available, is_sagemaker_mp_enabled, is_torch_tpu_available, is_datasets_available
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, HPSearchBackend, TrainOutput, has_length, speed_metrics, seed_worker, enable_full_determinism, set_seed, get_last_checkpoint, find_executable_batch_size
 from transformers.trainer_pt_utils import get_model_param_count, get_dataloader_sampler
 from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.trainer_callback import TrainerCallback, TrainerState
 from transformers.training_args import ParallelMode
 from accelerate import Accelerator, skip_first_batches
 from accelerate import __version__ as accelerate_version
-from accelerate.utils import GradientAccumulationPlugin
+from accelerate.utils import GradientAccumulationPlugin, DistributedType
 
 if version.parse(accelerate_version) > version.parse("0.23.0"):
         from accelerate.data_loader import SeedableRandomSampler
@@ -39,6 +44,7 @@ if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
 
 from ..model.gradcache import GradCache
+from ..model.em_lm import EmLMTrainOutput
 
 # Name of the files used for checkpointing
 TRAINING_ARGS_NAME = "training_args.bin"
@@ -130,6 +136,36 @@ class SFTTrainer(Trainer):
         if self.is_deepspeed_enabled and getattr(self.args, "hf_deepspeed_config", None) is None:
             self.propagate_args_to_deepspeed() 
     
+    def get_train_dataloader(self) -> DataLoader:
+        """
+        Returns the training [`~torch.utils.data.DataLoader`].
+
+        Will use no sampler if `train_dataset` does not implement `__len__`, a random sampler (adapted to distributed
+        training if necessary) otherwise.
+
+        Subclass and override this method if you want to inject some custom behavior.
+        """
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        train_dataset = self.train_dataset
+        data_collator = self.data_collator
+
+        dataloader_params = {
+            "batch_size": self._train_batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
+            dataloader_params["sampler"] = self._get_train_sampler()
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["worker_init_fn"] = seed_worker
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
+    
     def compute_loss(self, model, inputs, return_outputs=False):
         if self.first_train_batch:
             self.first_train_batch = False
@@ -163,10 +199,40 @@ class SFTTrainer(Trainer):
                     print("Generative_labels:\n", self.tokenizer.decode(print_g_labels))
                 print("Generative_attn:\n", print_g_attn)
                 print("Loss_weight_mask:\n", loss_weight_mask)
-        
-        outputs = model(**inputs)
-        loss = outputs.loss
-        return (loss, outputs) if return_outputs else loss
+        inputs_gen = inputs.pop('generative', None)
+        inputs_emb = inputs.pop('passage', None)
+        assert inputs_gen is not None or inputs_emb is not None, "Either generative or passage must be provided"
+
+        if inputs_gen is not None:
+            outputs_gen = model(
+                input_ids=inputs_gen['input_ids'],
+                attention_mask=inputs_gen['attention_mask'],
+                is_emb=False,
+                is_gen=True,
+                labels=inputs_gen['labels'],
+                loss_weight_mask=inputs_gen['loss_weight_mask'],
+                )
+            gen_loss = outputs_gen.loss_gen
+        if inputs_emb is not None:
+            outputs_emb = model(
+                input_ids=inputs_emb['input_ids'],
+                attention_mask=inputs_emb['attention_mask'],
+                is_emb=True,
+                is_gen=False,
+                instruction_lens=inputs_emb['instruction_lens'],
+                constrastive_labels=inputs_emb['labels'],
+                indices_tuple=inputs_emb['indices_tuple'],
+                )
+            emb_loss = outputs_emb.loss_emb
+        output = EmLMTrainOutput(
+            reps=outputs_emb.reps if inputs_emb is not None else None,
+            gen_outputs=outputs_gen.gen_outputs if inputs_gen is not None else None,
+            loss=sum([x for x in [emb_loss, gen_loss] if x is not None]),
+            loss_emb=emb_loss if inputs_emb is not None else None,
+            loss_gen=gen_loss if inputs_gen is not None else None,
+            )
+        loss = emb_loss + gen_loss
+        return (loss, output) if return_outputs else loss
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         model.train()
@@ -176,13 +242,21 @@ class SFTTrainer(Trainer):
                 loss_gen = torch.tensor(0.0, device=self.args.device)
                 chunks = self.gc.split_inputs(inputs['generative'], self.gc_mini_batch_size)
                 for chunk in chunks:
-                    loss_gen_chunk = model(generative=chunk) / len(chunks)
+                    loss_gen_chunk = model(
+                        input_ids=chunk['input_ids'],
+                        attention_mask=chunk['attention_mask'],
+                        is_emb=False,
+                        is_gen=True,
+                        labels=chunk['labels'],
+                        loss_weight_mask=chunk['loss_weight_mask'],
+                        )
+                    loss_gen_chunk = loss_gen_chunk.loss_gen / len(chunks)
                     # TODO: Backward pass in here or sum with emb_loss? (It should be same?)
                     if self.use_apex:
-                        with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                        with amp.scale_loss(loss_gen_chunk, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
-                        self.accelerator.backward(loss) # Includes normalizing by gas
+                        self.accelerator.backward(loss_gen_chunk) # Includes normalizing by gas
                     loss_gen += loss_gen_chunk.detach()
 
                 no_sync_except_last = torch.distributed.is_initialized()
@@ -191,9 +265,8 @@ class SFTTrainer(Trainer):
                 indicates = passage.pop('indices_tuple', None)
                 labels  = passage.pop('labels', None)
                 loss_emb = self.gc(passage, no_sync_except_last=no_sync_except_last, labels=labels, indicates=indicates) / world_size
-                
-                self.state.loss_emb = getattr(self.state, "loss_emb", torch.tensor(0.0).to(loss.device))
-                self.state.loss_gen = getattr(self.state, "loss_gen", torch.tensor(0.0).to(loss.device))
+                self.state.loss_emb = getattr(self.state, "loss_emb", torch.tensor(0.0).to(loss_emb.device))
+                self.state.loss_gen = getattr(self.state, "loss_gen", torch.tensor(0.0).to(loss_gen.device))
                 self.state.loss_emb += loss_emb.detach()
                 self.state.loss_gen += loss_gen.detach()
 
@@ -222,18 +295,11 @@ class SFTTrainer(Trainer):
                 self.state.loss_gen += loss_gen.detach() / self.args.gradient_accumulation_steps
                 
                 return loss.detach() / self.args.gradient_accumulation_steps
-            
+    
     def _inner_training_loop(
-            self, 
-            batch_size=None, 
-            args=None, 
-            resume_from_checkpoint=None, 
-            trial=None, ignore_keys_for_eval=None
-            ):
-        
+        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
         self.accelerator.free_memory()
-
-        ### Setup training data ###
         self._train_batch_size = batch_size
         if self.args.auto_find_batch_size:
             if self.state.train_batch_size != self._train_batch_size:
@@ -251,12 +317,17 @@ class SFTTrainer(Trainer):
                     self.args.per_device_train_batch_size = original_bs
             self.state.train_batch_size = self._train_batch_size
         logger.debug(f"Currently training with a batch size of: {self._train_batch_size}")
+        # Data loader and number of training steps
         train_dataloader = self.get_train_dataloader()
+        if self.is_fsdp_xla_v2_enabled:
+            train_dataloader = tpu_spmd_dataloader(train_dataloader)
+
         # Setting up training control variables:
         # number of training epochs: num_train_epochs
         # number of training steps per epoch: num_update_steps_per_epoch
         # total number of training steps to execute: max_steps
         total_train_batch_size = self._train_batch_size * args.gradient_accumulation_steps * args.world_size
+
         len_dataloader = None
         num_train_tokens = None
         if has_length(train_dataloader):
@@ -297,7 +368,6 @@ class SFTTrainer(Trainer):
                 f" {args.max_steps}"
             )
 
-        ### Debug setting ###
         if DebugOption.UNDERFLOW_OVERFLOW in self.args.debug:
             if self.args.n_gpu > 1:
                 # nn.DataParallel(model) replicates the model, creating new variables and module
@@ -309,21 +379,23 @@ class SFTTrainer(Trainer):
             else:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
-        ### Prepare Optimizer and Scheduler ###
         delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
+
         # We need to reset the scheduler, as its parameters may be different on subsequent calls
         if self._created_lr_scheduler:
             self.lr_scheduler = None
             self._created_lr_scheduler = False
+
         if self.is_deepspeed_enabled:
             self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
+
         if not delay_optimizer_creation:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
-        
-        ### Logging and checkpointing setting ###
+
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
         self.state.train_batch_size = self._train_batch_size
+
         # Compute absolute values for logging, eval, and save if given as ratio
         if args.logging_steps is not None:
             if args.logging_steps < 1:
@@ -341,21 +413,27 @@ class SFTTrainer(Trainer):
             else:
                 self.state.save_steps = args.save_steps
 
-        ### Preprare Model ###
         # Activate gradient checkpointing if needed
         if args.gradient_checkpointing:
             if args.gradient_checkpointing_kwargs is None:
                 gradient_checkpointing_kwargs = {}
             else:
                 gradient_checkpointing_kwargs = args.gradient_checkpointing_kwargs
+
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)
+
         model = self._wrap_model(self.model_wrapped)
+
         # as the model is wrapped, don't use `accelerator.prepare`
         # this is for unhandled cases such as
         # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
         use_accelerator_prepare = True if model is self.model else False
+
         if delay_optimizer_creation:
+            if use_accelerator_prepare:
+                self.model = self.accelerator.prepare(self.model)
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
+
         # prepare using `accelerator` prepare
         if use_accelerator_prepare:
             self.model.train()
@@ -369,22 +447,30 @@ class SFTTrainer(Trainer):
                 model, self.optimizer, self.lr_scheduler = self.accelerator.prepare(
                     self.model, self.optimizer, self.lr_scheduler
                 )
+
         if self.is_fsdp_enabled:
             self.model = self.model_wrapped = model
+
         # for the rest of this function `model` is the outside model, whether it was wrapped or not
         if model is not self.model:
             self.model_wrapped = model
+
         # backward compatibility
         if self.is_deepspeed_enabled:
             self.deepspeed = self.model_wrapped
+
         # ckpt loading
         if resume_from_checkpoint is not None:
             if self.is_deepspeed_enabled:
-                deepspeed_load_checkpoint(self.model_wrapped, resume_from_checkpoint)
+                deepspeed_load_checkpoint(
+                    self.model_wrapped, resume_from_checkpoint, load_module_strict=not _is_peft_model(self.model)
+                )
             elif is_sagemaker_mp_enabled() or self.is_fsdp_enabled:
                 self._load_from_checkpoint(resume_from_checkpoint, self.model_wrapped)
+
         # Check if saved optimizer or scheduler states exist
         self._load_optimizer_and_scheduler(resume_from_checkpoint)
+
         # important: at this point:
         # self.model         is the Transformers Model
         # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model),
@@ -401,10 +487,12 @@ class SFTTrainer(Trainer):
         logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
         logger.info(f"  Total optimization steps = {max_steps:,}")
         logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
-        
+
         ### MODIFIED: Add GradCache ###
+        
         # self.model object should have function emb_loss_fn
         if self.use_gc:
+            logger.info("Initialize GradCache!")
             assert hasattr(self.model, "emb_loss_fn"), "Model should have emb_loss_fn function"
             dtype = None
             if self.args.bf16:
@@ -415,8 +503,8 @@ class SFTTrainer(Trainer):
             scaler = torch.cuda.amp.GradScaler() if self.args.fp16 else None
             if os.getenv("BF16", False):
                 self.gc = GradCache(
-                    model=[model],
-                    chunk_size=self.gc_mini_batch_size,
+                    models=[model],
+                    chunk_sizes=self.gc_mini_batch_size,
                     loss_fn=self.model.emb_loss_fn,
                     get_rep_fn=lambda x: x['reps'].to(dtype=dtype) if dtype is not None else x['reps'],
                     fp16=self.args.fp16,
@@ -424,13 +512,14 @@ class SFTTrainer(Trainer):
                 )
             else:
                 self.gc = GradCache(
-                    model=[model],
-                    chunk_size=self.gc_mini_batch_size,
+                    models=[model],
+                    chunk_sizes=self.gc_mini_batch_size,
                     loss_fn=self.model.emb_loss_fn,
                     get_rep_fn=lambda x: x['reps'],
                     fp16=self.args.fp16,
                     scaler=scaler,
                 )
+            logger.info("GradCache initialized!")
         ### MODIFIED END ###
 
         self.state.epoch = 0
@@ -459,7 +548,7 @@ class SFTTrainer(Trainer):
                     f"  Will skip the first {epochs_trained} epochs then the first"
                     f" {steps_trained_in_current_epoch} batches in the first epoch."
                 )
-        
+
         # Update the references
         self.callback_handler.model = self.model
         self.callback_handler.optimizer = self.optimizer
@@ -487,7 +576,10 @@ class SFTTrainer(Trainer):
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
         model.zero_grad()
+        grad_norm: Optional[float] = None
+
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
@@ -505,23 +597,27 @@ class SFTTrainer(Trainer):
                     # AT THE VERY END!
                     sampler = sampler if sampler is not None else []
                     _ = list(sampler)
-        total_batched_samples = 0
 
+        total_batched_samples = 0
         for epoch in range(epochs_trained, num_train_epochs):
             epoch_iterator = train_dataloader
             if hasattr(epoch_iterator, "set_epoch"):
                 epoch_iterator.set_epoch(epoch)
+
             # Reset the past mems state at the beginning of each epoch if necessary.
             if args.past_index >= 0:
                 self._past = None
+
             steps_in_epoch = (
                 len(epoch_iterator)
                 if len_dataloader is not None
                 else args.max_steps * args.gradient_accumulation_steps
             )
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
+
             if epoch == epochs_trained and resume_from_checkpoint is not None and steps_trained_in_current_epoch == 0:
                 self._load_rng_state(resume_from_checkpoint)
+
             rng_to_sync = False
             steps_skipped = 0
             if steps_trained_in_current_epoch > 0:
@@ -529,9 +625,11 @@ class SFTTrainer(Trainer):
                 steps_skipped = steps_trained_in_current_epoch
                 steps_trained_in_current_epoch = 0
                 rng_to_sync = True
+
             step = -1
             for step, inputs in enumerate(epoch_iterator):
                 total_batched_samples += 1
+
                 if self.args.include_num_input_tokens_seen:
                     main_input_name = getattr(self.model, "main_input_name", "input_ids")
                     if main_input_name not in inputs:
@@ -545,6 +643,7 @@ class SFTTrainer(Trainer):
                 if rng_to_sync:
                     self._load_rng_state(resume_from_checkpoint)
                     rng_to_sync = False
+
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -556,11 +655,13 @@ class SFTTrainer(Trainer):
                 elif steps_trained_progress_bar is not None:
                     steps_trained_progress_bar.close()
                     steps_trained_progress_bar = None
+
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
                 with self.accelerator.accumulate(model):
                     tr_loss_step = self.training_step(model, inputs)
+
                 if (
                     args.logging_nan_inf_filter
                     and not is_torch_tpu_available()
@@ -593,19 +694,27 @@ class SFTTrainer(Trainer):
                         # deepspeed does its own clipping
 
                         if is_sagemaker_mp_enabled() and args.fp16:
-                            self.optimizer.clip_master_grads(args.max_grad_norm)
+                            _grad_norm = self.optimizer.clip_master_grads(args.max_grad_norm)
                         elif self.use_apex:
                             # Revert to normal clipping otherwise, handling Apex or full precision
-                            nn.utils.clip_grad_norm_(
+                            _grad_norm = nn.utils.clip_grad_norm_(
                                 amp.master_params(self.optimizer),
                                 args.max_grad_norm,
                             )
                         else:
-                            self.accelerator.clip_grad_norm_(
+                            _grad_norm = self.accelerator.clip_grad_norm_(
                                 model.parameters(),
                                 args.max_grad_norm,
                             )
-                    
+
+                        if (
+                            is_accelerate_available()
+                            and self.accelerator.distributed_type == DistributedType.DEEPSPEED
+                        ):
+                            grad_norm = model.get_global_grad_norm()
+                        else:
+                            grad_norm = _grad_norm.item() if _grad_norm is not None else None
+
                     # Optimizer step
                     self.optimizer.step()
                     optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
@@ -619,13 +728,17 @@ class SFTTrainer(Trainer):
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
+                    # PyTorch/XLA relies on the data loader to insert the mark_step for
+                    # each step. Since we are breaking the loop early, we need to manually
+                    # insert the mark_step here.
+                    if is_torch_tpu_available():
+                        xm.mark_step()
                     break
-            
             if step < 0:
                 logger.warning(
                     "There seems to be not a single sample in your epoch_iterator, stopping training at step"
@@ -635,7 +748,7 @@ class SFTTrainer(Trainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -707,4 +820,4 @@ class SFTTrainer(Trainer):
             self._deactivate_neftune(self.model)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
-    
+

@@ -1,3 +1,5 @@
 note.ipynb
 *__pycache__*
 draft.py
+wandb
+scripts/training/test.sh
