@@ -3,3 +3,5 @@ note.ipynb
 draft.py
 wandb
 scripts/training/test.sh
+dataset
+.vscode
