@@ -69,24 +69,24 @@ class MSMARCODataset(DataModule):
     def setup(self, stage: str = "") -> None:
         def filter_too_long_instructions(example, tokenizer, max_seq_length):
             # Filter out super long examples to avoid tokenize taking forever
-            if not filter_too_long_example(tokenizer, example['query'][0], max_seq_length) \
+            if not filter_too_long_example(example['query'][0], max_seq_length) \
                 or not example['query'][1] \
-                or not filter_too_long_example(tokenizer, example['query'][1], max_seq_length):
+                or not filter_too_long_example(example['query'][1], max_seq_length):
                 return False
             for ex in example['pos'] + example['neg']:
-                if not filter_too_long_example(tokenizer, ex[0], max_seq_length) \
+                if not filter_too_long_example(ex[0], max_seq_length) \
                     or not ex[1] \
-                    or not filter_too_long_example(tokenizer, ex[1], max_seq_length):
+                    or not filter_too_long_example(ex[1], max_seq_length):
                     return False
             return True
                 
-        train_ds = load_dataset('json', data_files=self.train_file, split='train')
+        train_ds = load_dataset('json', data_files=self.train_file, split='train', cache_dir='cache')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-            num_proc=20,
-            load_from_cache_file=True
+            num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
+            load_from_cache_file=True,
         )
-        val_ds = load_dataset('json', data_files=self.val_file, split='train')
+        val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir='cache')
 
         if self.mode == 'dpoc':
             self.train_dataset = DPOCDataset(

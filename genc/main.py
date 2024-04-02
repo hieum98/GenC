@@ -12,7 +12,7 @@ import torch
 import lightning as L
 from lightning.fabric.plugins import BitsandbytesPrecision
 from lightning.fabric.strategies import FSDPStrategy
-from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser
+from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser, AutoTokenizer
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 
 from genc.data.base import DataModule
