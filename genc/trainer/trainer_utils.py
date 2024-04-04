@@ -1,18 +1,26 @@
 from collections import UserDict
+import functools
 from itertools import repeat
 from contextlib import contextmanager, nullcontext
+from tqdm.auto import tqdm
 import logging
 import os
 from pathlib import Path
-from typing import Any, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from typing_extensions import Self
 import torch
+import torch.nn as nn
 from torch.nn import functional as F
+from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, transformer_auto_wrap_policy
 import lightning as L
-from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
-from lightning.pytorch.loggers import WandbLogger
+import wandb
 from transformers import PreTrainedModel
 from peft import PeftModel
+# To add a new model, import the transformer, attention, & MLP layers
+# for the wrapping policy and `check_fn` in activation checkpointing
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LLAMA_ATTENTION_CLASSES, LlamaMLP
+from transformers.models.mistral.modeling_mistral import MistralDecoderLayer, MISTRAL_ATTENTION_CLASSES, MistralMLP
+
 
 
 def parse_devices(devices: Union[str, int]) -> int:
@@ -23,21 +31,26 @@ def parse_devices(devices: Union[str, int]) -> int:
     raise ValueError(f"Devices must be 'auto' or a positive integer, got: {devices!r}")
 
 
-def choose_logger(
-    logger_name: Literal["csv", "tensorboard", "wandb"],
-    out_dir: Path,
-    name: str,
-    log_interval: int = 1,
-    resume: Optional[bool] = None,
-    **kwargs: Any,
-):
-    if logger_name == "csv":
-        return CSVLogger(root_dir=(out_dir / "logs"), name="csv", flush_logs_every_n_steps=log_interval, **kwargs)
-    if logger_name == "tensorboard":
-        return TensorBoardLogger(root_dir=(out_dir / "logs"), name="tensorboard", **kwargs)
-    if logger_name == "wandb":
-        return WandbLogger(project=name, resume=resume, **kwargs)
-    raise ValueError(f"`--logger_name={logger_name}` is not a valid option. Choose from 'csv', 'tensorboard', 'wandb'.")
+class Logger:
+    def __init__(self, args, log_to="stdout", project_name="fsdp_qlora", entity=None, group=None, name=None, rank=0):
+        # self.log_every_n_steps = log_every_n_steps TODO: add this back as an option
+        self.log_to = log_to
+        if self.log_to == "wandb" and rank==0:
+            wandb.init(project=project_name, entity=entity, group=group, name=name, config=args)
+
+    def log(self, d:Dict, rank:int):
+        if rank != 0: return
+        if self.log_to == "tqdm":
+            for k,v in d.items():
+                tqdm.write(f'{k}: {v}')
+        elif self.log_to == "wandb":
+            wandb.log(d)
+        elif self.log_to == "stdout":
+            for k,v in d.items():
+                print(f'{k}: {v}')
+
+    def finish(self, rank=0):
+        if self.log_to == "wandb" and rank==0: wandb.finish()
 
 
 def get_default_supported_precision(training: bool) -> str:
@@ -167,41 +180,41 @@ def get_trainable_parameters(model: PreTrainedModel) -> Tuple[int, int, float]:
     return trainable_params, all_param, 100 * trainable_params / all_param
 
 
-def get_device_map(force_auto_device_map: bool=False, max_memory_MB: int = None) -> Tuple[str, Union[int, List[int]]]:
-    if force_auto_device_map:
-        if os.environ.get("LOCAL_RANK") is not None:
-            # raise ValueError(
-            #    "Found DDP environment and force_auto_device_map is set to True, this configuration "
-            #    "is not supported. If you want to use DPP, set force_auto_device_map to False, so "
-            #    "a copy of the model is loaded in each GPU. If you want the split the model across "
-            #    "GPUs (force_auto_device_map=True), do not use DDP (launch your script with "
-            #    "pyton -m src/run.py config.json). If you are not in a DDP environment but you see "
-            #    "this error, you might have manually set the environment variable 'LOCAL_WORLD_SIZE' to a "
-            #    "number different than 1, please, remove this environment variable or set it to 1"
-            # )
-            if torch.cuda.is_available():
-                n_gpus = torch.cuda.device_count()
-            else:
-                logging.warning("You are in a DDP environment but no GPU is available, this may cause errors later on")
-                n_gpus = 0
+# Wrap the model using LoRA policy from llama-recipes or custom policy:
+# This checks for lora layers (has weight and requires_grad)
+def get_wrapping_policy(custom_policy:bool=False):
+    from peft.tuners import PromptEncoder, PromptEmbedding, PrefixEncoder
 
-            max_memory = {i: max_memory_MB for i in range(n_gpus)}
-            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-            device_map = {"": local_rank}
-            max_memory = {"": max_memory[local_rank]} if max_memory_MB is not None else None
-
-        else:
-            logging.warning(
-                "Using auto device map, we will split the model across GPUs and CPU to fit the model in memory."
-            )
-            device_map = "auto"
-            max_memory = max_memory_MB
+    if custom_policy:
+        def lambda_policy_fn(module):
+            # LORA trainable layers.
+            return (isinstance(module, nn.Sequential) and all(m.weight.requires_grad for m in module))
     else:
-        max_memory = None
-        device_map = None
-    logging.info(f"We will load the model using the following device map: {device_map} and max_memory: {max_memory}")
+        def lambda_policy_fn(module):
+            return (
+                len(list(module.named_children())) == 0
+                and getattr(module, "weight", None) is not None
+                and module.weight.requires_grad
+            )
+    def self_attn_policy_fn(module):
+        # Check module name is self_attn.
+        return isinstance(module, tuple(*LLAMA_ATTENTION_CLASSES.values(), *MISTRAL_ATTENTION_CLASSES.values()))
 
-    return device_map, max_memory
+    def mlp_policy_fn(module):
+        # Check module name is self_attn.
+        return isinstance(module, (LlamaMLP, MistralMLP))
+
+    lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
+    self_attn_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=self_attn_policy_fn)
+    mlp_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=mlp_policy_fn)
+    transformer_wrap_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls=(LlamaDecoderLayer, MistralDecoderLayer),
+    )
+    policies=[lambda_policy, transformer_wrap_policy]
+    if custom_policy:
+        policies.extend([self_attn_policy, mlp_policy])
+    return functools.partial(_or_policy, policies=policies)
 
 
 def split_input(model_input, chunk_size: int) -> List:

@@ -1,8 +1,12 @@
+import copy
 import json
 import logging
+import time
 from typing import List, Optional, Tuple, Union
+import safetensors
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 from transformers import (
     BitsAndBytesConfig, 
     AutoConfig,
@@ -10,12 +14,19 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
 )
+from transformers.utils import hub, SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
+from accelerate import init_empty_weights
+from bitsandbytes.nn import Linear4bit, Params4bit
 from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+from fastcore.parallel import parallel
 
 from genc.model.genc import MistralEmbeddingLM
-from genc.trainer.trainer_utils import get_trainable_parameters, get_device_map
+from genc.trainer.loading_utils import load_and_quantize_parallel, n_loading_workers, replace_linear, setup_quantized_meta_for_peft, setup_quantized_peft_meta_for_training
 from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos
 
+logger = logging.getLogger(__name__)
 
 def load_model(
         model_weights_name_or_path: str,
@@ -24,8 +35,7 @@ def load_model(
         pooling_method: str = "mean",
         loss_gen_type: str = "mixed",
         temperature: float = 0.05,
-        quantization: Optional[int] = None,
-        use_gradient_checkpointing: bool = False,
+        quantization: bool = False,
         use_lora: bool = False,
         train_adapter_name: Optional[str] = "default",
         lora_weights_name_or_path: Optional[str] = None,
@@ -33,19 +43,14 @@ def load_model(
         lora_r: Optional[int] = 8,
         lora_alpha: Optional[int] = 16,
         lora_dropout: Optional[float] = 0.05,
-        torch_dtype: Optional[str] = "bfloat16",
         inference: bool = False,
-        fsdp: bool = False,
+        low_memory: bool = True,
+        torch_dtype=torch.bfloat16,
+        compute_dtype=torch.bfloat16,
+        precision: str = "bf16",
+        rank: int = 0,
+        local_rank: int = 0,
         **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
-    # Sanity checks
-    if isinstance(quantization, str):
-        quantization = int(quantization)
-    assert (quantization is None) or (
-        quantization in [4, 8]
-    ), f"Quantization must be 4 or 8, or None for FP32/FP16 training. You passed: {quantization}"
-
-    assert torch_dtype in ["bfloat16", "float32", "float16"], f"torch_dtype must be 'bfloat16', 'float32', or 'float16'. You passed: {torch_dtype}"
-
     if lora_weights_name_or_path is not None and not use_lora:
         logging.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
 
@@ -74,7 +79,6 @@ def load_model(
 
     # Load model
     logging.info(f"Loading model from {model_weights_name_or_path}")
-    device_map, max_memory = get_device_map()
     # Load model config
     if use_lora:
         config = AutoConfig.from_pretrained(
@@ -88,49 +92,95 @@ def load_model(
             model_weights_name_or_path,
             trust_remote_code=True,
         )
-    # Get the quantization config
-    torch_dtype = torch_dtype if torch_dtype in ["auto", None] else getattr(torch, torch_dtype)
-    if quantization is not None:
-        if quantization == 4:
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16 if torch_dtype in ["auto", None] else torch_dtype,
-            )
-        else:
-            bnb_config = BitsAndBytesConfig(
-                load_in_8bit=True,
-            )
-        logging.info(f"Bits and Bytes config: {json.dumps(bnb_config.to_dict(),indent=4,ensure_ascii=False)}")
-    else:
-        logging.info(f"Loading model with dtype: {torch_dtype}")
-        bnb_config = None
+    # Create the model
     # Specify model args
     model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, new_vocab_size]
-    model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
-        model_weights_name_or_path,
-        *model_args,
-        device_map=device_map,
-        max_memory=max_memory,
-        torch_dtype=torch_dtype,
-        config=config,
-        # trust_remote_code=True,
-        quantization_config=bnb_config,
-        **kwargs,
-    )
-    # Quantization
-    if quantization is not None and not inference:
-        logging.info("Quantizing model")
-        from peft import prepare_model_for_kbit_training
-        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=use_gradient_checkpointing)
+    if quantization is False:
+        if (low_memory and rank==0) or (not low_memory):
+            model = MistralEmbeddingLM.from_pretrained(
+                model_weights_name_or_path,
+                *model_args,
+                use_cache=False,
+                torch_dtype=torch_dtype,
+                pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
+                **kwargs,
+            )
+            dtype = torch_dtype if precision == "bf16" else None
+            model.to(dtype=dtype, device="cpu" if low_memory else rank)
+        else:
+            config.use_cache = False
+            if "_attn_implementation" in kwargs:
+                config._attn_implementation = kwargs["_attn_implementation"]
+            with init_empty_weights():
+                model = MistralEmbeddingLM._from_config(
+                    config,
+                    torch_dtype=torch_dtype,
+                    use_bidirectional=use_bidirectional,
+                    normalized=normalized,
+                    pooling_method=pooling_method,
+                    loss_gen_type=loss_gen_type,
+                    temperature=temperature,
+                    new_vocab_size=new_vocab_size,
+                )
+            if precision == "bf16":
+                model = model.to(torch_dtype)
     else:
-        if use_gradient_checkpointing and not inference:
-            model.gradient_checkpointing_enable()
+        config.use_cache = False
+        if "_attn_implementation" in kwargs:
+            config._attn_implementation = kwargs["_attn_implementation"]
+        # load model on meta device without calling init and replace nn.Linear with Linear4bit
+        with init_empty_weights():
+            model: MistralEmbeddingLM = MistralEmbeddingLM._from_config(
+                config,
+                use_bidirectional=use_bidirectional,
+                normalized=normalized,
+                pooling_method=pooling_method,
+                loss_gen_type=loss_gen_type,
+                temperature=temperature,
+                new_vocab_size=new_vocab_size,
+            )
+            model.model = replace_linear(model.model, Linear4bit, compute_dtype=compute_dtype,
+                                             quant_type='nf4', quant_storage=torch_dtype)
+        model.is_loaded_in_4bit = True
+        # Grab the safetensors files that hold the weights
+        try:
+            idx = hub.cached_file(model_weights_name_or_path, SAFE_WEIGHTS_INDEX_NAME)
+            files, _ = hub.get_checkpoint_shard_files(model_weights_name_or_path, idx)
+        except OSError:
+            try:
+                # This means the model doesn't have a model.safetensors.index.json because it is not sharded
+                files = []
+                files.append(hub.cached_file(model_weights_name_or_path, SAFE_WEIGHTS_NAME))
+            except OSError as e:
+                # This means the model probably doesn't have a safetensors file
+                raise e
+        quant_method = "bnb"
+        param_count = sum((p.numel() for n,p in model.named_parameters()))
+        n_workers = n_loading_workers(quant_method, param_count)
+        if rank == 0:
+            logger.info(f"Using n_workers: {n_workers} for loading")
+        start = time.time()
+        for filename in tqdm(files, desc="Loading & Quantizing Model Shards", disable=rank!=0, position=0):
+            weights = safetensors.torch.load_file(filename)
+            parallel(load_and_quantize_parallel, iter(weights.items()), n_workers=n_workers, threadpool=True,
+                     model=model, dtype=torch_dtype, device=local_rank, skip_names=[],
+                     to_cpu=(low_memory and rank==0), to_meta=(low_memory and rank!=0),
+                     verbose=True, quant_method=quant_method)
+
+        if rank == 0:
+            logger.info(f"Loaded model weights in {time.time()-start:.3f} seconds")
+        # cleanup any extra memory usage from parallel loading
+        torch.cuda.empty_cache()
+    if rank == 0:
+        print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
+
     # Load LoRA weights
     if use_lora:
-        if not inference:
-            model.enable_input_require_grads() # Enable the gradients for the input embeddings
+        # PEFT will move quant_state to meta device, so this method prevents that
+        # from happening by replacing quant_state.to with a dummy function
+        if rank!=0 and low_memory:
+            setup_quantized_meta_for_peft(model)
+            
         if lora_weights_name_or_path is None:
             logging.info("No LoRA weights provided, we will use the default random LoRA weights.")
             if lora_target_modules == ["all"]:
@@ -146,57 +196,26 @@ def load_model(
                 bias="none",
                 task_type=TaskType.CAUSAL_LM,
                 target_modules=lora_target_modules,
+                inference_mode=inference,
             )
             model: PeftModel = get_peft_model(model, lora_config, adapter_name=train_adapter_name)
         else:
             logging.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
             model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path, adapter_name=train_adapter_name, is_trainable=True)
-        logging.info(f"\nLoRA config:\n{model.peft_config}\n")
-        # Coverting LoRA layers to the desired dtype if bf16 is used for faster training
-        from peft.tuners.lora import LoraLayer
-        from peft.tuners.tuners_utils import BaseTunerLayer
-        for name, module in model.named_modules():
-            if isinstance(module, LoraLayer):
-                if torch_dtype == torch.bfloat16:
-                    logging.debug(f"Converting LoRA layer {name} to {torch_dtype}")
-                    module = module.to(torch.bfloat16)
-            elif isinstance(module, BaseTunerLayer):
-                if torch_dtype == torch.bfloat16:
-                    logging.debug(f"Converting LoRA layer {name} to {torch_dtype}")
-                    module = module.to(torch.bfloat16)
+
+        if rank==0:
+            model.print_trainable_parameters()
+        elif low_memory:
+            # And then setup_quantized_peft_meta_for_training sets quant_state.to back to normal
+            setup_quantized_peft_meta_for_training(model)
     
-    if not fsdp:
-        for name, module in model.named_modules():
-            if "norm" in name or isinstance(module, nn.LayerNorm):
-                logging.debug(f"Converting layer {name} to {torch.float32}")
-                module = module.to(torch.float32)
-            elif any(x in name for x in ["lm_head", "embed_tokens", "wte", "wpe"]):
-                if hasattr(module, "weight"):
-                    if torch_dtype == torch.bfloat16 and module.weight.dtype == torch.float32:
-                        logging.debug(f"Converting layer {name} to {torch_dtype}")
-                        module = module.to(torch.bfloat16)
-    
-    if inference:
-        if use_lora:
-            if quantization is None:
-                # If we are not using quantization, we merge the LoRA layers into the model for faster inference.
-                # This is not possible if we are using 4/8 bit quantization.
-                logging.info("Merging LoRA layers into the model for faster inference.")
-                model = model.merge_and_unload()
-            else:
-                logging.info(
-                    "Quantization is enabled, we will not merge LoRA layers into the model. Inference will be slower."
-                )
-    else:
-        trainable_params, total_params, trainable_percentage = get_trainable_parameters(model)
-        logging.info(
-            f"---> Trainable params: {trainable_params} || all params: {total_params} ||"
-            f" trainable%: {round(trainable_percentage,6)}\n"
-        )
-        
     if len(additional_special_tokens) > 0:
         model.resize_token_embeddings(len(tokenizer))
         config.vocab_size += len(additional_special_tokens)
         model.config.vocab_size = len(tokenizer)
+    
+    logger.log({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)}, rank)
+    logger.log({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)}, rank)
+    
     return model, tokenizer
 

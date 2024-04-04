@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 import logging
 from typing import Dict, List, Optional, Tuple, Union
@@ -6,9 +7,13 @@ from transformers import (AutoConfig,
                           MistralPreTrainedModel,
                           MistralForCausalLM,)
 from transformers.utils import ModelOutput
+from transformers.integrations import is_deepspeed_zero3_enabled, deepspeed_config
 from pytorch_metric_learning import losses, miners, distances
 
 from genc.model.modules import NextTokenLoss
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class EmLMTrainOutput(ModelOutput):
@@ -31,7 +36,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
             temperature: float = 0.05,
             new_vocab_size: Optional[int] = None,
             ) -> None:
-
+    
         super().__init__(config)
         # self.model = MistralForCausalLM(config)
         self.is_causal = not use_bidirectional
@@ -223,7 +228,48 @@ class MistralEmbeddingLM(MistralForCausalLM):
         return output
         # return EmLMTrainOutput(**output)
 
+    @classmethod
+    def _from_config(cls, config, **kwargs):
+        """
+        All context managers that the model should be initialized under go here.
 
+        Args:
+            torch_dtype (`torch.dtype`, *optional*):
+                Override the default `torch.dtype` and load the model under this dtype.
+        """
+        torch_dtype = kwargs.pop("torch_dtype", None)
+        use_flash_attention_2 = kwargs.pop("use_flash_attention_2", False)
+
+        # override default dtype if needed
+        dtype_orig = None
+        if torch_dtype is not None:
+            dtype_orig = cls._set_default_torch_dtype(torch_dtype)
+
+        config = copy.deepcopy(config)  # We do not want to modify the config inplace in _from_config.
+        config._attn_implementation = kwargs.pop("attn_implementation", None)
+        config = cls._autoset_attn_implementation(
+            config,
+            use_flash_attention_2=use_flash_attention_2,
+            check_device_map=False,
+            torch_dtype=torch_dtype,
+        )
+
+        if is_deepspeed_zero3_enabled():
+            import deepspeed
+
+            logger.info("Detected DeepSpeed ZeRO-3: activating zero.init() for this model")
+            # this immediately partitions the model across all gpus, to avoid the overhead in time
+            # and memory copying it on CPU or each GPU first
+            with deepspeed.zero.Init(config_dict_or_path=deepspeed_config()):
+                model = cls(config, **kwargs)
+        else:
+            model = cls(config, **kwargs)
+
+        # restore default dtype if it was modified
+        if dtype_orig is not None:
+            torch.set_default_dtype(dtype_orig)
+
+        return model
 
 
 

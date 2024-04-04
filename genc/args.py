@@ -37,6 +37,7 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
+    # General model setting
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
         )
@@ -52,6 +53,7 @@ class ModelArguments:
             " A higher temperature can reduce the value of similarity between texts in downstream tasks."
             }
             )
+    # Lora settings
     use_lora: bool = field(
         default=False,
         metadata={
@@ -89,19 +91,9 @@ class ModelArguments:
         default=0.0,
         metadata={"help": "The dropout probability for Lora layers."},
         )
-    torch_dtype: Optional[str] = field(
-        default='bfloat16',
-        metadata={
-            "help": (
-                "Override the default `torch.dtype` and load the model under this"
-                " dtype. If `auto` is passed, the dtype will be automatically derived"
-                " from the model's weights. We will override this if we use quantization."
-            ),
-            "choices": ["auto", "bfloat16", "float16", "float32"],
-            },
-        )
-    quantization: Optional[int] = field(
-        default=None,
+    
+    quantization: Optional[bool] = field(
+        default=True,
         metadata={ "help": (
                 "Whether to use '4' or '8' bit quantization. Requires bitsandbytes library:"
                 " https://github.com/TimDettmers/bitsandbytes. This parameter is only used for training."
@@ -114,10 +106,7 @@ class TrainingArguments():
     """
     TrainingArguments class to include additional arguments for training.
     """
-    seed: int = field(
-        default=2708,
-        metadata={"help": "Random seed."},
-        )
+    # Machine config
     nodes: int = field(
         default=1,
         metadata={"help": "Number of nodes to use for training."},
@@ -126,30 +115,94 @@ class TrainingArguments():
         default=1,
         metadata={"help": "Number of devices to use for training."},
         )
-    logger_name: str = field(
-        default="wandb",
-        metadata={"help": "The name of the logger to use for logging. Should be one of ['wandb', 'tensorboard', 'csv']"},
+    master_addr: Optional[str] = field(
+        default="localhost",
+        metadata={"help": "Master address for distributed training."},
+        )
+    master_port: Optional[int] = field(
+        default=12355,
+        metadata={"help": "Master port for distributed training."},
+        )
+    
+    # Training settings
+    seed: int = field(
+        default=2708,
+        metadata={"help": "Random seed."},
         )
     precision: str = field(
         default="bf16-true",
         metadata={"help": "Precision to use for training. Should be one of ['bf16-true', '16-true', '32-true']"},
         )
-    quantize: str = field(
-        default=None,
-        metadata={"help": "Quantization to use for training. Should be one of ['nf4', 'nf4-dq', 'fp4', 'fp4-dq', 'int8', 'int8-training']"},
+    mode: str = field(
+        default='dpoc',
+        metadata={"help": "The mode of training. Should be one of ['dpoc', 'emb']"},
         )
-    save_interval: Optional[int] = field(
-        default=1000,
-        metadata={"help": "Number of optimizer steps between saving checkpoints"},
+    
+    # FSDP settings
+    strategy: Optional[str] = field(
+        default="fsdp",
+        metadata={"help": "The strategy to use for training. Should be one of ['auto', 'ddp', 'deepspeed', 'fsdp']"},
     )
-    log_interval: int = field(
-        default=1,
-        metadata={"help": "Number of optimizer steps between logging training metrics"},
+    sharding_strategy: Optional[str] = field(
+        default="full_shard",
+        metadata={"help": "The sharding strategy to use for training. Should be one of {}".format("full_shard", "shard_grad_op", "ddp", "hybrid_full_shard", "hybrid_shard_grad_op")},
     )
+    use_cpu_offload: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use CPU offload for training."},
+    )
+    use_activation_cpu_offload: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use CPU offload for activation."},
+    )
+    no_sync: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to use no_sync for training."},
+    )
+    low_memory: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use low memory training."},
+        )
+    reentrant_checkpointing: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Use re-entrant autograd activation."},
+        )
+
+    # Training data settings
     global_batch_size: int = field(
         default=32,
         metadata={"help": "Global batch size for training"},
     )
+    mini_batch_size: int = field(
+        default=2,
+        metadata={"help": "The mini batch size for training."},
+        )
+    max_seq_length: int = field(
+        default=512,
+        metadata={"help": "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated, sequences shorter will be padded."},
+        )
+    num_train_epochs: int = field(
+        default=3,
+        metadata={"help": "The number of epochs to train."},
+        )
+    max_steps: Optional[int] = field(
+        default=None,
+        metadata={"help": "If set, the total number of training steps to perform. Overrides num_train_epochs."},
+        )
+    num_positive_samples: int = field(
+        default=1,
+        metadata={"help": "The number of positive samples to consider for contrastive loss."},
+        )
+    num_negative_samples: int = field(
+        default=8,
+        metadata={"help": "The number of negative samples to consider for constrastive loss."},
+        )
+    topk_neg: Optional[int] = field(
+        default=8,
+        metadata={"help": "The number of negative samples to consider for KL divergence loss"},
+    )
+
+    # Gradcache settings
     use_gc: Optional[bool] = field(
             default=False,
             metadata={
@@ -162,6 +215,12 @@ class TrainingArguments():
         default=2,
         metadata={"help": "The mini batch size for Gradcache."}
     )
+
+    # Objective settings
+    prompt_loss_weight: float = field(
+        default=0.05,
+        metadata={"help": "The weight for prompt loss."},
+        )
     use_miner: Optional[bool] = field(
         default=False,
         metadata={
@@ -169,10 +228,6 @@ class TrainingArguments():
                 "Whether to use MultiSimilarityMiner. If True, the model will be trained with MultiSimilarityMiner"
             )
         },
-    )
-    topk_neg: Optional[int] = field(
-        default=8,
-        metadata={"help": "The number of negative samples to consider for KL divergence loss"},
     )
     dpo_loss_type: Optional[str] = field(
         default="sigmoid",
@@ -182,54 +237,8 @@ class TrainingArguments():
         default=0.1,
         metadata={"help": "The beta value for DPO loss"},
     )
-    strategy: Optional[str] = field(
-        default="fsdp",
-        metadata={"help": "The strategy to use for training. Should be one of ['auto', 'ddp', 'deepspeed', 'fsdp']"},
-    )
-    prompt_loss_weight: float = field(
-        default=0.05,
-        metadata={"help": "The weight for prompt loss."},
-        )
-    num_negative_samples: int = field(
-        default=8,
-        metadata={"help": "The number of negative samples to consider for constrastive loss."},
-        )
-    num_positive_samples: int = field(
-        default=1,
-        metadata={"help": "The number of positive samples to consider for contrastive loss."},
-        )
-    max_seq_length: int = field(
-        default=512,
-        metadata={"help": "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated, sequences shorter will be padded."},
-        )
-    mode: str = field(
-        default='dpoc',
-        metadata={"help": "The mode of training. Should be one of ['dpoc', 'emb']"},
-        )
-    output_dir: str = field(
-        default="output",
-        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
-        )
-    gradient_checkpointing: bool = field(
-        default=False,
-        metadata={"help": "Whether to use gradient checkpointing."},
-        )
-    num_train_epochs: int = field(
-        default=3,
-        metadata={"help": "The number of epochs to train."},
-        )
-    max_steps: Optional[int] = field(
-        default=None,
-        metadata={"help": "If set, the total number of training steps to perform. Overrides num_train_epochs."},
-        )
-    mini_batch_size: int = field(
-        default=2,
-        metadata={"help": "The mini batch size for training."},
-        )
-    warmup_steps: int = field(
-        default=100,
-        metadata={"help": "Linear warmup over warmup_steps."},
-        )
+    
+    # Optimizer settings
     learning_rate: float = field(
         default=5e-5,
         metadata={"help": "The initial learning rate for the optimizer."},
@@ -246,12 +255,45 @@ class TrainingArguments():
         default=0.999,
         metadata={"help": "Beta2 for the Adam optimizer."},
         )
-
-    def gradient_accumulation_iters(self, devices: int) -> int:
-        """Number of iterations between gradient synchronizations"""
-        gradient_accumulation_iters = self.batch_size(devices) // self.gc_mini_batch_size
-        assert gradient_accumulation_iters > 0
-        return gradient_accumulation_iters
+    warmup_steps: int = field(
+        default=100,
+        metadata={"help": "Linear warmup over warmup_steps."},
+        )
+    apply_gradient_clipping: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use gradient clipping."},
+    )
+    grad_norm_clip: Optional[float] = field(
+        default=0.3,
+        metadata={"help": "The value to clip the gradient norm."},
+    )
+    gradient_checkpointing: bool = field(
+        default=False,
+        metadata={"help": "Whether to use gradient checkpointing."},
+        )
+    
+    
+    # Checkpointing settings
+    logger_name: str = field(
+        default="wandb",
+        metadata={"help": "The name of the logger to use for logging. Should be one of ['wandb', 'tensorboard', 'csv']"},
+        )
+    save_interval: Optional[int] = field(
+        default=1000,
+        metadata={"help": "Number of optimizer steps between saving checkpoints"},
+    )
+    log_interval: int = field(
+        default=1,
+        metadata={"help": "Number of optimizer steps between logging training metrics"},
+    )
+    output_dir: str = field(
+        default="output",
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
+        )
+    checkpoint_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "The directory to save checkpoints."},
+        )
 
     def batch_size(self, devices: int) -> int:
         """Number of samples between optimizer steps per data-parallel rank"""

@@ -12,46 +12,66 @@ normalized: True
 pooling_method: mean
 loss_gen_type: mixed
 temperature: 0.07
-use_lora: True
 # Lora setting
+use_lora: True
 train_adapter_name: msmarco
 lora_r: 8
 lora_alpha: 32
 lora_dropout: 0.0
 # Quantization setting
-torch_dtype: bfloat16
-quantization: 4
+quantization: True
 
 # Training args
-mode: dpoc
-output_dir: /home/hieum/uonlp/LLM_Emb/output/checkpoints/mistral-7b-dpoc_msmarco
-devices: 2
+# Machine args
 nodes: 1
+devices: 2
+master_addr: localhost
+master_port: 12345
+
+# Training args
+seed: 1234
 precision: bf16-true
-strategy: ddp
-# General quantization setting
-quantize: None 
-# Gradcache settings
-use_gc: True 
-gc_mini_batch_size: 1
+mode: dpoc
+
+# FSDP args
+strategy: fsdp
+sharding_strategy: full_shard
+use_cpu_offload: True
+use_activation_cpu_offload: False
+no_sync: True
+low_memory: True
+reentrant_checkpointing: True
+
+#Training data args
+global_batch_size: 64
 mini_batch_size: 1
-# Batch args
-global_batch_size: 192 
 max_seq_length: 2048
+num_train_epochs: 3
+max_steps: 5000
 num_positive_samples: 1
 num_negative_samples: 32
 topk_neg: 4
-# Optimizer args
+
+# Gradcache settings
+use_gc: True 
+gc_mini_batch_size: 1
+
+# Objective args
+prompt_loss_weight: 0.05
 use_miner: False
 dpo_loss_type: sigmoid
 dpo_beta: 0.1
-prompt_loss_weight: 0.05
+
+# Optimizer args
 learning_rate: 0.0002 # 2e-4
-num_train_epochs: 3
 warmup_steps: 100
-max_steps: 5000
-# Checkpointing settings
+apply_gradient_clipping: False
+grad_norm_clip: 0.3
+gradient_checkpointing: True
+
+# Checkpointing args
 logger_name: wandb
+output_dir: /home/hieum/uonlp/LLM_Emb/output/checkpoints/mistral-7b-dpoc_msmarco
 save_interval: 1000
 log_interval: 1
 
