@@ -52,7 +52,7 @@ def load_and_quantize(module:nn.Module, name:str, value:Tensor, device:torch.dev
 
     Quantizes `Params4bit` on `device` then places on "cpu" if to_cpu=True or "meta" if to_meta=True.
     """
-    def place_on_device(value):
+    def place_on_device(value, device=device, dtype=dtype):
         if to_meta:
             device = 'meta'
         elif to_cpu:
