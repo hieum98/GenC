@@ -80,7 +80,6 @@ def get_dataloader(
     dataloader = DataLoader(
         ds,
         batch_size=batch_size,
-        shuffle=is_train,
         num_workers=num_workers,
         collate_fn=collator,
         sampler=sampler,

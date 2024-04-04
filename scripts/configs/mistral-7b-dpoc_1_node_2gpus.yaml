@@ -24,9 +24,9 @@ quantization: True
 # Training args
 # Machine args
 nodes: 1
-devices: 2
+devices: 1
 master_addr: localhost
-master_port: 12345
+master_port: "12345"
 
 # Training args
 seed: 1234
@@ -39,7 +39,7 @@ sharding_strategy: full_shard
 use_cpu_offload: True
 use_activation_cpu_offload: False
 no_sync: True
-low_memory: True
+low_memory: False
 reentrant_checkpointing: True
 
 #Training data args

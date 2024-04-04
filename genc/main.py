@@ -201,7 +201,7 @@ def main(
 
     # Load the data
     # Load the data
-    train_data_file = Path(data_args.data_dir) / data_args.train_file
+    train_data_file = os.path.join(Path(data_args.data_dir), data_args.train_file)
     train_dataloader = get_dataloader(
         data_files=train_data_file,
         tokenizer=tokenizer,
@@ -220,7 +220,7 @@ def main(
         training_args.num_train_epochs * steps_per_epoch, 
         (training_args.max_steps or float("inf"))
         )
-    val_data_file = Path(data_args.data_dir) / data_args.val_file
+    val_data_file = os.path.join(Path(data_args.data_dir), data_args.val_file)
     val_dataloader = get_dataloader(
         data_files=val_data_file,
         tokenizer=tokenizer,

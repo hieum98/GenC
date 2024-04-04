@@ -2,7 +2,7 @@ adam_beta1: 0.9
 adam_beta2: 0.999
 apply_gradient_clipping: false
 checkpoint_dir: null
-devices: 2
+devices: 1
 dpo_beta: 0.1
 dpo_loss_type: sigmoid
 gc_mini_batch_size: 1
@@ -12,9 +12,9 @@ gradient_checkpointing: true
 learning_rate: 0.0002
 log_interval: 1
 logger_name: wandb
-low_memory: true
+low_memory: false
 master_addr: localhost
-master_port: 12345
+master_port: '12345'
 max_seq_length: 2048
 max_steps: 5000
 mini_batch_size: 1

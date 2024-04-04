@@ -119,8 +119,8 @@ class TrainingArguments():
         default="localhost",
         metadata={"help": "Master address for distributed training."},
         )
-    master_port: Optional[int] = field(
-        default=12355,
+    master_port: Optional[str] = field(
+        default="12355",
         metadata={"help": "Master port for distributed training."},
         )
     

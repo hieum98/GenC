@@ -52,7 +52,7 @@ def load_model(
         local_rank: int = 0,
         **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
     if lora_weights_name_or_path is not None and not use_lora:
-        logging.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
+        logger.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
 
     # Load tokenizer
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
@@ -65,7 +65,7 @@ def load_model(
             # StabilityLM specific fix
             tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
         else:
-            logging.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+            logger.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
             tokenizer.pad_token = tokenizer.bos_token
             tokenizer.pad_token_id = tokenizer.bos_token_id
     # Add special tokens into tokenizer
@@ -78,7 +78,7 @@ def load_model(
     new_vocab_size = len(tokenizer)
 
     # Load model
-    logging.info(f"Loading model from {model_weights_name_or_path}")
+    logger.info(f"Loading model from {model_weights_name_or_path}")
     # Load model config
     if use_lora:
         config = AutoConfig.from_pretrained(
@@ -182,9 +182,9 @@ def load_model(
             setup_quantized_meta_for_peft(model)
             
         if lora_weights_name_or_path is None:
-            logging.info("No LoRA weights provided, we will use the default random LoRA weights.")
+            logger.info("No LoRA weights provided, we will use the default random LoRA weights.")
             if lora_target_modules == ["all"]:
-                logging.warning(
+                logger.warning(
                     "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
                 )
                 from genc.trainer.trainer_utils import find_all_linear_names
@@ -200,7 +200,7 @@ def load_model(
             )
             model: PeftModel = get_peft_model(model, lora_config, adapter_name=train_adapter_name)
         else:
-            logging.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
+            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
             model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path, adapter_name=train_adapter_name, is_trainable=True)
 
         if rank==0:
@@ -214,8 +214,9 @@ def load_model(
         config.vocab_size += len(additional_special_tokens)
         model.config.vocab_size = len(tokenizer)
     
-    logger.log({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)}, rank)
-    logger.log({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)}, rank)
+    if rank==0:
+        logger.info({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})
+        logger.info({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)})
     
     return model, tokenizer
 

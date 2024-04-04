@@ -104,14 +104,6 @@ def fit(
     logger: Any,
     train_adapter_name: Optional[str] = "default",
 ):  
-    # sanity check
-    validate(
-        local_rank=local_rank,
-        model=model,  
-        val_dataloader=val_dataloader, 
-        val_args=dataclasses.replace(validation_args, max_iters=5)
-        )
-    
     optimizer: torch.optim.Optimizer = stage["optimizer"]
     scheduler : torch.optim.lr_scheduler.LambdaLR = stage["scheduler"]
     checkpoint_iter_num = stage["iter_num"]
@@ -229,6 +221,7 @@ def fit(
                 scaler.scale(loss_emb).backward()
             else:
                 loss_emb.backward()
+        breakpoint()
         cons_running_loss.update(loss_emb.detach())
 
         # Forward-backward pass for DPO and KL loss
