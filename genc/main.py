@@ -275,12 +275,6 @@ def main(
         "scheduler": scheduler,
         "iter_num": checkpoint_iter_num,
     }
-    # Sanity check: see what parameters the optimizer has and which require grad:
-    if rank == 0:
-        print("Optimizer params:")
-        for group in optimizer.param_groups:
-            for param in group['params']:
-                print(f"Shape: {param.shape}, Requires Grad: {param.requires_grad}, Dtype: {param.dtype}")
     
     # Autocast for mixed precision with fp16/bf16 compute types with fp32 params
     if training_args.precision in ["16-mixed", "bf16-mixed"]:
@@ -353,6 +347,8 @@ def setup(
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
+    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))

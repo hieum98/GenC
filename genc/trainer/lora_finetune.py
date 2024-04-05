@@ -42,7 +42,7 @@ def validate(
     print("Validation")
     model.eval()
     emb_data = []
-    for k, batch in enumerate(val_dataloader):
+    for k, batch in tqdm(enumerate(val_dataloader), desc="Validation", total=len(val_dataloader)):
         if k > val_args.max_iters:
             break
         idx = batch["idx"].cpu()
@@ -104,6 +104,9 @@ def fit(
     logger: Any,
     train_adapter_name: Optional[str] = "default",
 ):  
+    # val_metric = validate(local_rank, model, val_dataloader, validation_args)
+    # torch.distributed.barrier()
+
     optimizer: torch.optim.Optimizer = stage["optimizer"]
     scheduler : torch.optim.lr_scheduler.LambdaLR = stage["scheduler"]
     checkpoint_iter_num = stage["iter_num"]
@@ -137,7 +140,6 @@ def fit(
     dpo_running_loss = RunningMean(window=1, sync_on_compute=False).to(local_rank)
     kl_running_loss = RunningMean(window=1, sync_on_compute=False).to(local_rank)
     cons_running_loss = RunningMean(window=1, sync_on_compute=False).to(local_rank)
-    progress_bar = tqdm(range(lr_max_steps), disable=rank != 0)
 
     memory_stats = []
     torch.cuda.reset_peak_memory_stats(local_rank)
@@ -221,7 +223,6 @@ def fit(
                 scaler.scale(loss_emb).backward()
             else:
                 loss_emb.backward()
-        breakpoint()
         cons_running_loss.update(loss_emb.detach())
 
         # Forward-backward pass for DPO and KL loss
@@ -233,7 +234,7 @@ def fit(
         pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
         neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
         # Get topk similar negatives
-        _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg, dim=-1) # [bs, topk_neg]
+        _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg*2, dim=-1) # [bs, topk_neg]
         # Get top1 dissimilar positives
         _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
         
@@ -462,7 +463,6 @@ def fit(
         optimizer.zero_grad()
         if scheduler:
             scheduler.step()
-        progress_bar.update(1)
         
         if iter_num % training_args.log_interval == 0:
             _cons_loss = cons_running_loss.compute().item()
@@ -479,28 +479,34 @@ def fit(
                 "iter_time": t1 - iter_t0,
                 "learning_rate": scheduler.get_last_lr()[0],
             }
-            if isinstance(val_metric, torch.Tensor):
-                val_metric = f"{val_metric:.3f}"
             
             if rank == 0:
                 logger.log(metrics, rank)
-                progress_bar.set_postfix(metrics)
-                progress_bar.set_description(f"Epoch {train_iterator.epoch} | Iter {iter_num} | Cons Loss: {_cons_loss:.3f} | KL Loss: {_kl_loss:.3f} | DPO Loss: {_dpo_loss:.3f} | LR: {scheduler.get_last_lr()[0]:.3e}")
-        
-        if iter_num % validation_args.interval == 0:
-            t0 = time.perf_counter()
-            metrics = validate(
-                local_rank=local_rank,
-                model=model,  
-                val_dataloader=val_dataloader, 
-                val_args=validation_args
+                print(
+                f"Epoch {metrics['epoch']+1} | iter {metrics['iter']} |"
+                f" loss train: {metrics['cons_loss']:.3f},"
+                f" kl loss: {_kl_loss:.3f},"
+                f" dpo loss: {_dpo_loss:.3f},"
+                # f" val: {val_metric} |"
+                f" lr: {metrics['learning_rate']:.2e} |"
+                f" iter time: {metrics['iter_time'] * 1000:.2f} ms"
                 )
-            val_metric = torch.tensor(metrics['R_at_1'])
-            t1 = time.perf_counter() - t0
-            if rank == 0:
-                logger.log({"val_metric": val_metric.item(), "val_time": t1}, rank)
-                print(f"Validation metric: {val_metric:.3f}")
-            torch.distributed.barrier()
+
+
+        # if iter_num % validation_args.interval == 0:
+        #     t0 = time.perf_counter()
+        #     metrics = validate(
+        #         local_rank=local_rank,
+        #         model=model,  
+        #         val_dataloader=val_dataloader, 
+        #         val_args=validation_args
+        #         )
+        #     val_metric = torch.tensor(metrics['R_at_1'])
+        #     t1 = time.perf_counter() - t0
+        #     if rank == 0:
+        #         logger.log({"val_metric": val_metric.item(), "val_time": t1}, rank)
+        #         print(f"Validation metric: {val_metric:.3f}")
+        #     torch.distributed.barrier()
 
         if training_args.save_interval is not None and iter_num % training_args.save_interval == 0:
             torch.distributed.barrier()
@@ -526,8 +532,6 @@ def fit(
                     print("Saving full model weights to", save_full_path)
                     torch.save(cpu_state_dict, save_full_path)
 
-        # Delete the intermediate variables and outputs for more memory frees up before the next forward pass
-        del reps, loss_emb, model_outputs, model_inputs, emb_model_inputs, gen_model_inputs, pair_logits, pair_inputs, all_policy_logits, all_policy_logps, all_ref_logits, all_ref_logps
     
 
 

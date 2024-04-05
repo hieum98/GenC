@@ -237,6 +237,10 @@ class TrainingArguments():
         default=0.1,
         metadata={"help": "The beta value for DPO loss"},
     )
+    label_smoothing_factor: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "The label smoothing factor to apply."},
+    )
     
     # Optimizer settings
     learning_rate: float = field(

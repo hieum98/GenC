@@ -1,5 +1,5 @@
 # Data args
-data_dir: /home/hieum/uonlp/LLM_Emb/dataset/msmarco
+data_dir: /mnt/hieu/msmarco
 train_file: msmarco_hard.jsonl
 val_file: msmarco_dev.jsonl
 num_workers: 20
@@ -15,7 +15,7 @@ temperature: 0.07
 # Lora setting
 use_lora: True
 train_adapter_name: msmarco
-lora_r: 8
+lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.0
 # Quantization setting
@@ -24,7 +24,7 @@ quantization: True
 # Training args
 # Machine args
 nodes: 1
-devices: 1
+devices: 4
 master_addr: localhost
 master_port: "12345"
 
@@ -37,20 +37,20 @@ mode: dpoc
 strategy: fsdp
 sharding_strategy: full_shard
 use_cpu_offload: True
-use_activation_cpu_offload: False
+use_activation_cpu_offload: True
 no_sync: True
-low_memory: False
+low_memory: True
 reentrant_checkpointing: True
 
 #Training data args
-global_batch_size: 64
+global_batch_size: 128
 mini_batch_size: 1
 max_seq_length: 2048
 num_train_epochs: 3
 max_steps: 5000
 num_positive_samples: 1
-num_negative_samples: 32
-topk_neg: 4
+num_negative_samples: 64
+topk_neg: 32
 
 # Gradcache settings
 use_gc: True 
@@ -61,6 +61,7 @@ prompt_loss_weight: 0.05
 use_miner: False
 dpo_loss_type: sigmoid
 dpo_beta: 0.1
+label_smoothing_factor: 0.1
 
 # Optimizer args
 learning_rate: 0.0002 # 2e-4
@@ -71,7 +72,7 @@ gradient_checkpointing: True
 
 # Checkpointing args
 logger_name: wandb
-output_dir: /home/hieum/uonlp/LLM_Emb/output/checkpoints/mistral-7b-dpoc_msmarco
+output_dir: output/checkpoints/mistral-7b-dpoc_msmarco
 save_interval: 1000
 log_interval: 1
 

@@ -44,7 +44,7 @@ def get_dataloader(
                 or not filter_too_long_example(ex[1], max_seq_length):
                 return False
         return True
-    ds = load_dataset('json', data_files=data_files, split='train', cache_dir='cache')
+    ds = load_dataset('json', data_files=data_files, split='train')
     if is_train:
         ds = ds.filter(
             lambda ex: filter_too_long_instructions(ex, tokenizer, max_seq_length),
@@ -148,13 +148,13 @@ class MSMARCODataset(DataModule):
                     return False
             return True
                 
-        train_ds = load_dataset('json', data_files=self.train_file, split='train', cache_dir='cache')
+        train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
             num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
             load_from_cache_file=True,
         )
-        val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir='cache')
+        val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
         if self.mode == 'dpoc':
             self.train_dataset = DPOCDataset(

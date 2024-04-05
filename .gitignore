@@ -6,3 +6,4 @@ scripts/training/test.sh
 dataset
 .vscode
 cache
+output

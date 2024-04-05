@@ -187,8 +187,7 @@ def load_model(
                 logger.warning(
                     "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
                 )
-                from genc.trainer.trainer_utils import find_all_linear_names
-                lora_target_modules = find_all_linear_names(model, quantization=quantization)
+                lora_target_modules = ["k_proj", "q_proj", "v_proj", "up_proj", "down_proj", "gate_proj"]
             lora_config = LoraConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,
