@@ -5,7 +5,7 @@ checkpoint_dir: null
 devices: 4
 dpo_beta: 0.1
 dpo_loss_type: sigmoid
-gc_mini_batch_size: 1
+gc_mini_batch_size: 4
 global_batch_size: 128
 grad_norm_clip: 0.3
 gradient_checkpointing: true
@@ -22,7 +22,7 @@ mini_batch_size: 1
 mode: dpoc
 no_sync: true
 nodes: 1
-num_negative_samples: 64
+num_negative_samples: 32
 num_positive_samples: 1
 num_train_epochs: 3
 output_dir: output/checkpoints/mistral-7b-dpoc_msmarco
@@ -33,8 +33,8 @@ save_interval: 1000
 seed: 1234
 sharding_strategy: full_shard
 strategy: fsdp
-topk_neg: 32
-use_activation_cpu_offload: true
+topk_neg: 16
+use_activation_cpu_offload: false
 use_cpu_offload: true
 use_gc: true
 use_miner: false

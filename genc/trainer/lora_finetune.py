@@ -141,9 +141,6 @@ def fit(
     kl_running_loss = RunningMean(window=1, sync_on_compute=False).to(local_rank)
     cons_running_loss = RunningMean(window=1, sync_on_compute=False).to(local_rank)
 
-    memory_stats = []
-    torch.cuda.reset_peak_memory_stats(local_rank)
-
     while iter_num < lr_max_steps:
         iter_num += 1
         if iter_num < checkpoint_iter_num:
@@ -153,7 +150,6 @@ def fit(
         # Log memory usage
         if iter_num==0 and rank == 0:
             reserved_before_forward = torch.cuda.memory_reserved(local_rank)
-            memory_stats.append(f"Rank {rank}: Before forward: {reserved_before_forward/2**30:.2f} GiB")
             logger.log({"memory/allocated_before_forward": torch.cuda.memory_allocated(local_rank)}, rank)
             logger.log({"memory/reserved_before_forward": reserved_before_forward}, rank)
 
@@ -210,7 +206,7 @@ def fit(
                 constrastive_labels=passage_labels,
                 use_miner=training_args.use_miner,
                 )
-            loss_emb = loss_emb
+            loss_emb = loss_emb / (training_args.devices)
             loss_emb.detach()
         else:
             model_inputs['constrastive_labels']= passage_labels
@@ -314,7 +310,7 @@ def fit(
         inner_iter_num = 0
         for emb_input_chunk, gen_input_chunk in zip(split_input(emb_model_inputs, chunksize), split_input(gen_model_inputs, chunksize)):
             inner_iter_num += 1
-            is_accumulating = iter_num % inner_iter_num != 0
+            is_accumulating = (inner_iter_num % gradient_accumulation_iters) != 0
             if training_args.no_sync and not is_accumulating:
                 sync_context = model.no_sync()
             else:
@@ -372,7 +368,6 @@ def fit(
                         pair_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
                     # KL loss
                     loss_kl = kl_loss(emb_reps, pair_logits, pair_labels, pair_loss_weight_mask, bs=chunksize)
-
                     # DPO loss
                     # Get only the first choice and reject
                     concat_input_ids = torch.cat([
@@ -449,7 +444,6 @@ def fit(
         # Log memory usage
         if iter_num==0 and rank == 0:
             reserved_after_forward = torch.cuda.memory_reserved(local_rank)
-            memory_stats.append(f"Rank {rank}: After forward: {reserved_after_forward/2**30:.2f} GiB")
             logger.log({"memory/allocated_after_forward": torch.cuda.memory_allocated(local_rank)}, rank)
             logger.log({"memory/reserved_after_forward": reserved_after_forward}, rank)
         

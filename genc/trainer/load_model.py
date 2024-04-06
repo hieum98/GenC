@@ -84,6 +84,7 @@ def load_model(
         config = AutoConfig.from_pretrained(
             model_weights_name_or_path,
             trust_remote_code=True,
+            use_cache=False,
             pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
             # See https://github.com/huggingface/transformers/pull/24906
         )
@@ -91,6 +92,7 @@ def load_model(
         config = AutoConfig.from_pretrained(
             model_weights_name_or_path,
             trust_remote_code=True,
+            use_cache=False
         )
     # Create the model
     # Specify model args
@@ -100,17 +102,16 @@ def load_model(
             model = MistralEmbeddingLM.from_pretrained(
                 model_weights_name_or_path,
                 *model_args,
-                use_cache=False,
+                config=config,
                 torch_dtype=torch_dtype,
-                pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
                 **kwargs,
             )
             dtype = torch_dtype if precision == "bf16" else None
             model.to(dtype=dtype, device="cpu" if low_memory else rank)
         else:
             config.use_cache = False
-            if "_attn_implementation" in kwargs:
-                config._attn_implementation = kwargs["_attn_implementation"]
+            if "attn_implementation" in kwargs:
+                config._attn_implementation = kwargs["attn_implementation"]
             with init_empty_weights():
                 model = MistralEmbeddingLM._from_config(
                     config,
@@ -124,10 +125,25 @@ def load_model(
                 )
             if precision == "bf16":
                 model = model.to(torch_dtype)
+    elif inference:
+        bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16 if torch_dtype in ["auto", None] else torch_dtype,
+            )
+        model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
+                model_weights_name_or_path,
+                *model_args,
+                config=config,
+                # trust_remote_code=True,
+                quantization_config=bnb_config,
+                **kwargs,
+            )
     else:
         config.use_cache = False
-        if "_attn_implementation" in kwargs:
-            config._attn_implementation = kwargs["_attn_implementation"]
+        if "attn_implementation" in kwargs:
+            config._attn_implementation = kwargs["attn_implementation"]
         # load model on meta device without calling init and replace nn.Linear with Linear4bit
         with init_empty_weights():
             model: MistralEmbeddingLM = MistralEmbeddingLM._from_config(
@@ -171,8 +187,7 @@ def load_model(
             logger.info(f"Loaded model weights in {time.time()-start:.3f} seconds")
         # cleanup any extra memory usage from parallel loading
         torch.cuda.empty_cache()
-    if rank == 0:
-        print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
+    print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
 
     # Load LoRA weights
     if use_lora:

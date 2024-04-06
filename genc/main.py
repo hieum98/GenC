@@ -152,7 +152,26 @@ def main(
         precision=training_args.precision,
         rank=rank,
         local_rank=local_rank,
-        _attn_implementation=model_args.attn_implementation,
+        attn_implementation=model_args.attn_implementation,
+    )
+
+    ref_model, _  = load_model(
+        model_weights_name_or_path=model_args.model_name_or_path,
+        use_bidirectional=model_args.use_bidirectional,
+        normalized=model_args.normalized,
+        pooling_method=model_args.pooling_method,
+        loss_gen_type=model_args.loss_gen_type,
+        temperature=model_args.temperature,
+        quantization=model_args.quantization,
+        use_lora=False,
+        inference=True,
+        low_memory=training_args.low_memory,
+        torch_dtype=torch_dtype,
+        compute_dtype=compute_dtype,
+        precision=training_args.precision,
+        rank=rank,
+        local_rank=local_rank,
+        attn_implementation=model_args.attn_implementation,
     )
 
     # Load model checkpoint this will load the model state dict into cpu memory 
@@ -288,7 +307,7 @@ def main(
         local_rank=local_rank,
         rank=rank,
         model=model,
-        ref_model=None,
+        ref_model=ref_model,
         is_peft_model=model_args.use_lora,
         stage=stage,
         scaler=scaler,

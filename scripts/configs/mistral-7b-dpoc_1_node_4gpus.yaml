@@ -37,7 +37,7 @@ mode: dpoc
 strategy: fsdp
 sharding_strategy: full_shard
 use_cpu_offload: True
-use_activation_cpu_offload: True
+use_activation_cpu_offload: False
 no_sync: True
 low_memory: True
 reentrant_checkpointing: True
@@ -49,12 +49,12 @@ max_seq_length: 2048
 num_train_epochs: 3
 max_steps: 5000
 num_positive_samples: 1
-num_negative_samples: 64
-topk_neg: 32
+num_negative_samples: 32
+topk_neg: 16
 
 # Gradcache settings
 use_gc: True 
-gc_mini_batch_size: 1
+gc_mini_batch_size: 4
 
 # Objective args
 prompt_loss_weight: 0.05
@@ -68,7 +68,7 @@ learning_rate: 0.0002 # 2e-4
 warmup_steps: 100
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
-gradient_checkpointing: True
+gradient_checkpointing: False
 
 # Checkpointing args
 logger_name: wandb
