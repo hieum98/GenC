@@ -50,6 +50,7 @@ def load_model(
         precision: str = "bf16",
         rank: int = 0,
         local_rank: int = 0,
+        gradient_checkpointing: bool = False,
         **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
     if lora_weights_name_or_path is not None and not use_lora:
         logger.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
@@ -84,6 +85,7 @@ def load_model(
         config = AutoConfig.from_pretrained(
             model_weights_name_or_path,
             trust_remote_code=True,
+            use_cache=False,
             pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
             # See https://github.com/huggingface/transformers/pull/24906
         )
@@ -91,43 +93,40 @@ def load_model(
         config = AutoConfig.from_pretrained(
             model_weights_name_or_path,
             trust_remote_code=True,
+            use_cache=False
         )
     # Create the model
     # Specify model args
     model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, new_vocab_size]
     if quantization is False:
-        if (low_memory and rank==0) or (not low_memory):
-            model = MistralEmbeddingLM.from_pretrained(
+        model = MistralEmbeddingLM.from_pretrained(
+            model_weights_name_or_path,
+            *model_args,
+            config=config,
+            torch_dtype=torch_dtype,
+            **kwargs,
+        )
+        dtype = torch_dtype if precision == "bf16" else None
+        model.to(dtype=dtype, device="cpu" if low_memory else local_rank)
+    elif inference:
+        bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16 if torch_dtype in ["auto", None] else torch_dtype,
+            )
+        model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
                 model_weights_name_or_path,
                 *model_args,
-                use_cache=False,
-                torch_dtype=torch_dtype,
-                pretraining_tp=1,  # Fix mat1 and mat2 shapes cannot be multiplied  error with LLaMA-2
+                config=config,
+                # trust_remote_code=True,
+                quantization_config=bnb_config,
                 **kwargs,
             )
-            dtype = torch_dtype if precision == "bf16" else None
-            model.to(dtype=dtype, device="cpu" if low_memory else rank)
-        else:
-            config.use_cache = False
-            if "_attn_implementation" in kwargs:
-                config._attn_implementation = kwargs["_attn_implementation"]
-            with init_empty_weights():
-                model = MistralEmbeddingLM._from_config(
-                    config,
-                    torch_dtype=torch_dtype,
-                    use_bidirectional=use_bidirectional,
-                    normalized=normalized,
-                    pooling_method=pooling_method,
-                    loss_gen_type=loss_gen_type,
-                    temperature=temperature,
-                    new_vocab_size=new_vocab_size,
-                )
-            if precision == "bf16":
-                model = model.to(torch_dtype)
     else:
         config.use_cache = False
-        if "_attn_implementation" in kwargs:
-            config._attn_implementation = kwargs["_attn_implementation"]
+        if "attn_implementation" in kwargs:
+            config._attn_implementation = kwargs["attn_implementation"]
         # load model on meta device without calling init and replace nn.Linear with Linear4bit
         with init_empty_weights():
             model: MistralEmbeddingLM = MistralEmbeddingLM._from_config(
@@ -164,15 +163,14 @@ def load_model(
             weights = safetensors.torch.load_file(filename)
             parallel(load_and_quantize_parallel, iter(weights.items()), n_workers=n_workers, threadpool=True,
                      model=model, dtype=torch_dtype, device=local_rank, skip_names=[],
-                     to_cpu=(low_memory and rank==0), to_meta=(low_memory and rank!=0),
+                     to_cpu=(low_memory and local_rank==0), to_meta=(low_memory and local_rank!=0),
                      verbose=True, quant_method=quant_method)
 
         if rank == 0:
             logger.info(f"Loaded model weights in {time.time()-start:.3f} seconds")
         # cleanup any extra memory usage from parallel loading
         torch.cuda.empty_cache()
-    if rank == 0:
-        print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
+    print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
 
     # Load LoRA weights
     if use_lora:
@@ -213,6 +211,9 @@ def load_model(
         config.vocab_size += len(additional_special_tokens)
         model.config.vocab_size = len(tokenizer)
     
+    if gradient_checkpointing:
+        model.enable_input_require_grads()
+
     if rank==0:
         logger.info({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})
         logger.info({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)})

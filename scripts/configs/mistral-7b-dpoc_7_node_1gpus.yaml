@@ -23,8 +23,8 @@ quantization: False
 
 # Training args
 # Machine args
-nodes: 1
-devices: 2
+nodes: 7
+devices: 1
 master_addr: localhost
 master_port: "12345"
 
@@ -41,11 +41,11 @@ no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 64
+global_batch_size: 224
 mini_batch_size: 1
 max_seq_length: 2048
 num_train_epochs: 3
-max_steps: 10000
+max_steps: 5000
 num_positive_samples: 1
 num_negative_samples: 64
 topk_neg: 32
@@ -62,7 +62,7 @@ dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.0001 # 1e-4 (5e-5@32)
+learning_rate: 0.00035 # 3.5e-4 (5e-5@32)
 warmup_steps: 50
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
@@ -70,8 +70,8 @@ gradient_checkpointing: True
 
 # Checkpointing args
 logger_name: wandb
-output_dir: output/checkpoints/mistral-7b-dpoc_msmarco/1n2g
-save_interval: 500
+output_dir: output/checkpoints/mistral-7b-dpoc_msmarco/7n1g
+save_interval: 200
 log_interval: 1
 
 

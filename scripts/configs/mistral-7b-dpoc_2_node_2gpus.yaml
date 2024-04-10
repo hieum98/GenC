@@ -23,7 +23,7 @@ quantization: False
 
 # Training args
 # Machine args
-nodes: 1
+nodes: 2
 devices: 2
 master_addr: localhost
 master_port: "12345"
@@ -35,7 +35,7 @@ mode: dpoc
 
 # FSDP args
 strategy: fsdp
-sharding_strategy: full_shard
+sharding_strategy: shard_grad_op
 use_cpu_offload: True
 no_sync: True
 low_memory: True
@@ -44,8 +44,8 @@ low_memory: True
 global_batch_size: 64
 mini_batch_size: 1
 max_seq_length: 2048
-num_train_epochs: 3
-max_steps: 10000
+num_train_epochs: 2
+# max_steps: 10000
 num_positive_samples: 1
 num_negative_samples: 64
 topk_neg: 32
@@ -70,7 +70,7 @@ gradient_checkpointing: True
 
 # Checkpointing args
 logger_name: wandb
-output_dir: output/checkpoints/mistral-7b-dpoc_msmarco/1n2g
+output_dir: output/checkpoints/mistral-7b-dpoc_msmarco/2n2g
 save_interval: 500
 log_interval: 1
 

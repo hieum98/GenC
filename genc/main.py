@@ -23,14 +23,18 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     CheckpointImpl,
     apply_activation_checkpointing,
 )
+import lightning as L
 from lightning import seed_everything
+from lightning.fabric.strategies import FSDPStrategy
+from lightning.fabric.utilities.load import _lazy_load as lazy_load
 from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser, AutoTokenizer
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 
-from genc.data.msmarco import get_dataloader
+from genc.data.base import DataModule
+from genc.data.msmarco import MSMARCODataset, get_dataloader
 from genc.trainer.lora_finetune import fit
 from genc.trainer.trainer_utils import (
-    Logger,
+    choose_logger,
     get_default_supported_precision,
     get_wrapping_policy,
 )
@@ -71,65 +75,48 @@ def validate_and_correct_args(
         
     return data_args, model_args, training_args, validation_args 
 
+def get_dataloaders(
+    fabric: L.Fabric,
+    data: DataModule,
+    tokenizer: PreTrainedTokenizerBase,
+    training_args: TrainingArguments,       
+):  
+    world_size = training_args.nodes * training_args.devices 
+    data.connect(
+        world_size=world_size,
+        global_rank=fabric.global_rank,
+        tokenizer=tokenizer, 
+        batch_size=training_args.batch_size(world_size), 
+        max_seq_length=training_args.max_seq_length,
+        mode=training_args.mode,
+        num_negative_samples=training_args.num_negative_samples,
+        num_positive_samples=training_args.num_positive_samples,
+        prompt_loss_weight=training_args.prompt_loss_weight,
+    )
+    with fabric.rank_zero_first():
+        data.prepare_data()
+    data.setup()
+    train_dataloader = data.train_dataloader()
+    val_dataloader = data.val_dataloader()
+    train_dataloader, val_dataloader = fabric.setup_dataloaders(
+        train_dataloader, 
+        val_dataloader, 
+        use_distributed_sampler=False,
+        move_to_device=True,
+        )
+    return train_dataloader, val_dataloader
 
 def main(
-    local_rank: int,
-    world_size: int,
-    data_args: DataArguments,
+    fabric: L.Fabric,
+    data: DataModule,
     model_args: ModelArguments,
     training_args: TrainingArguments,
     validation_args: ValidationArgument,
-):
-    # Setup and initialize the process group
-    os.environ['MASTER_ADDR'] = training_args.master_addr
-    os.environ['MASTER_PORT'] = training_args.master_port
-    if 'SLURM_PROCID' in os.environ:
-        # assumes same number of GPUs per node.
-        rank = int(os.environ['SLURM_PROCID']) * torch.cuda.device_count() + local_rank
-    else:
-        rank = local_rank
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(local_rank)
-
-    # Setup logger
-    # Flat all arguments into a dictionary
-    logger = Logger(
-        args={
-            **asdict(data_args),
-            **asdict(model_args),
-            **asdict(training_args),
-            **asdict(validation_args),
-        }, 
-        log_to=training_args.logger_name,
-        project_name="genc",
-        rank=rank,
-    )
-
-    # Timing stuff
-    init_start_event = torch.cuda.Event(enable_timing=True)
-    init_end_event = torch.cuda.Event(enable_timing=True)
-
-    # model precision, qlora compute precison, and FSDP mixed precision policy.
-    # The Linear4Bit quant_storage dtype should always match the FSDP param_dtype. The compute_dtype should match the AMP compute dtype.
-    # MixedPrecision(param_dtype=fp32, reduce_dtype=fp32, buffer_dtype=fp32) uses `torch.amp.autocast` to control precision.
-    # limited qlora testing shows that fp16 only works with autocast while bf16 trains with both pure and autocast modes.
-    # TODO: test how often this holds for mp_fp16
-    mp_policy = None
-    if training_args.precision == "bf16-true":
-        torch_dtype, compute_dtype = torch.bfloat16, torch.bfloat16
-    elif training_args.precision == "32":
-        torch_dtype, compute_dtype = torch.float32, torch.float16
-    elif training_args.precision == "16-mixed":
-        compute_dtype, torch_dtype = torch.float16, torch.float32
-        mp_policy = MixedPrecision(param_dtype=torch.float32, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
-    elif training_args.precision == "bf16-mixed":
-        compute_dtype, torch_dtype = torch.bfloat16, torch.float32
-        mp_policy = MixedPrecision(param_dtype=torch.float32, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
-    else:
-        raise ValueError("Invalid precision")
-    
+    torch_dtype: torch.dtype,
+    compute_dtype: torch.dtype,
+):    
+    fabric.seed_everything(training_args.seed)
     # Load the model and tokenizer
-    # with fabric.init_module(empty_init=(devices > 1)): # Not use this with transformers because it will cause error due to the weight of pretrained model need to load in
     model, tokenizer = load_model(
         model_weights_name_or_path=model_args.model_name_or_path,
         use_bidirectional=model_args.use_bidirectional,
@@ -150,100 +137,55 @@ def main(
         torch_dtype=torch_dtype,
         compute_dtype=compute_dtype,
         precision=training_args.precision,
-        rank=rank,
-        local_rank=local_rank,
-        _attn_implementation=model_args.attn_implementation,
+        rank=fabric.global_rank,
+        local_rank=fabric.local_rank,
+        gradient_checkpointing=training_args.gradient_checkpointing,
+        attn_implementation=model_args.attn_implementation,
+    )
+    ref_model, _ = load_model(
+        model_weights_name_or_path=model_args.model_name_or_path,
+        use_bidirectional=model_args.use_bidirectional,
+        normalized=model_args.normalized,
+        pooling_method=model_args.pooling_method,
+        loss_gen_type=model_args.loss_gen_type,
+        temperature=model_args.temperature,
+        quantization=True,
+        use_lora=False,
+        inference=True,
+        low_memory=training_args.low_memory,
+        torch_dtype=torch_dtype,
+        compute_dtype=compute_dtype,
+        precision=training_args.precision,
+        rank=fabric.global_rank,
+        local_rank=fabric.local_rank,
+        attn_implementation=model_args.attn_implementation,
     )
 
     # Load model checkpoint this will load the model state dict into cpu memory 
     if training_args.checkpoint_dir is not None:
-        full_state_dict_model_path = Path(training_args.checkpoint_dir) / "model.pt"
-        model_checkpoint = torch.load(full_state_dict_model_path)
-        model.load_state_dict(model_checkpoint)
+        full_state_dict_model_path = Path(training_args.checkpoint_dir) / "model.ckpt"
+        if isinstance(fabric.strategy, FSDPStrategy):
+            fabric.load_raw(full_state_dict_model_path, model, strict=False)
+        else:
+            model_checkpoint = lazy_load(full_state_dict_model_path)
+            model.load_state_dict(model_checkpoint, strict=False)
 
-    logger.log({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)}, rank)
-    logger.log({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)}, rank)
-    # Wrap model with llama-recipies policy and then wrap with FSDP
-    my_auto_wrap_policy = get_wrapping_policy()
-    if rank == 0:
-        print("Wrapping model w/ FSDP", rank)
-    # Config sharding strategy
-    if training_args.sharding_strategy == "full_shard":
-        sharding_strategy = ShardingStrategy.FULL_SHARD
-    elif training_args.sharding_strategy == "shard_grad_op":
-        sharding_strategy = ShardingStrategy.SHARD_GRAD_OP
-    elif training_args.sharding_strategy == "ddp":
-        sharding_strategy = ShardingStrategy.NO_SHARD
-    elif training_args.sharding_strategy == "hybrid_full_shard":
-        sharding_strategy = ShardingStrategy.HYBRID_SHARD
-    elif training_args.sharding_strategy == "hybrid_shard_grad_op":
-        sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
-    else:
-        raise ValueError("Invalid sharding strategy")
-    model = FSDP(
-        model,
-        sharding_strategy=sharding_strategy,
-        auto_wrap_policy=my_auto_wrap_policy,
-        # backward_prefetch=None, #BackwardPrefetch.BACKWARD_PRE
-        use_orig_params=False,
-        cpu_offload=CPUOffload(offload_params=True) if training_args.use_cpu_offload else None,
-        limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
-        device_id=torch.cuda.current_device(),
-        sync_module_states=training_args.low_memory,
-        param_init_fn=lambda module: module.to_empty(device=torch.device("cuda"), recurse=False)
-            if (rank!=0 and training_args.low_memory) else None, # TODO note about meta device and why we need this
-        mixed_precision=mp_policy,
-    )
-    if rank == 0:
-        print(f"Rank {rank}: Wrapped model: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
-        logger.log({"memory/allocated_after_model_wrap": torch.cuda.memory_allocated(local_rank)}, rank)
-        logger.log({"memory/reserved_after_model_wrap": torch.cuda.memory_reserved(local_rank)}, rank)
+    fabric.log_dict({"memory/allocated_after_model_created": torch.cuda.memory_allocated(fabric.local_rank)})
+    fabric.log_dict({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(fabric.local_rank)})
+    model = fabric.setup_module(model)
+    fabric.log_dict({"memory/allocated_after_model_setup": torch.cuda.memory_allocated(fabric.local_rank)})
+    fabric.log_dict({"memory/reserved_after_model_setup": torch.cuda.memory_reserved(fabric.local_rank)})
 
     # Load the data
-    # Load the data
-    train_data_file = os.path.join(Path(data_args.data_dir), data_args.train_file)
-    train_dataloader = get_dataloader(
-        data_files=train_data_file,
-        tokenizer=tokenizer,
-        is_train=True,
-        mode=training_args.mode,
-        max_seq_length=training_args.max_seq_length,
-        num_negative_samples=training_args.num_negative_samples,
-        num_positive_samples=training_args.num_positive_samples,
-        prompt_loss_weight=training_args.prompt_loss_weight,
-        batch_size=training_args.batch_size(training_args.devices),
-        num_workers=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-        seed=training_args.seed,
-    )
+    train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, training_args)
+    # Synchronize at the start
+    fabric.barrier()
+
     steps_per_epoch = len(train_dataloader)
     lr_max_steps = min(
         training_args.num_train_epochs * steps_per_epoch, 
         (training_args.max_steps or float("inf"))
         )
-    val_data_file = os.path.join(Path(data_args.data_dir), data_args.val_file)
-    val_dataloader = get_dataloader(
-        data_files=val_data_file,
-        tokenizer=tokenizer,
-        is_train=False,
-    )
-    # Synchronize at the start
-    dist.barrier()
-
-    # Apply activation checkpointing
-    if training_args.gradient_checkpointing:
-        if training_args.reentrant_checkpointing:
-            model.enable_input_require_grads()
-        non_reentrant_wrapper = functools.partial(
-            checkpoint_wrapper,
-            checkpoint_impl=CheckpointImpl.REENTRANT if training_args.reentrant_checkpointing else CheckpointImpl.NO_REENTRANT,
-        )
-        check_fn = lambda submodule: isinstance(submodule, MistralDecoderLayer)
-        apply_activation_checkpointing(
-            model, checkpoint_wrapper_fn=non_reentrant_wrapper, check_fn=check_fn
-        )
-
-    if training_args.use_activation_cpu_offload:
-        model = offload_wrapper(model)
 
     # Config optimizer and scheduler
     optimizer = torch.optim.AdamW(
@@ -252,66 +194,37 @@ def main(
         weight_decay=training_args.weight_decay,
         betas=(training_args.adam_beta1, training_args.adam_beta2),
         )
+    optimizer = fabric.setup_optimizers(optimizer)
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=training_args.warmup_steps,
         num_training_steps=lr_max_steps,
         )
     checkpoint_iter_num = 0
-    if training_args.checkpoint_dir is not None:
-        optim_checkpoint_path = Path(training_args.checkpoint_dir) / "optimizer.pt"
-        if optim_checkpoint_path.exists():
-            checkpoint_state = torch.load(optim_checkpoint_path)
-            scheduler_state_dict = checkpoint_state["scheduler"]
-            scheduler.load_state_dict(scheduler_state_dict)
-            checkpoint_iter_num = checkpoint_state["iter_num"]
-            optimizer_state_dict = None
-            if rank == 0:
-                optimizer_state_dict = checkpoint_state["optimizer"]
-            sharded_optimizer_state_dict = FSDP.scatter_full_optim_state_dict(optimizer_state_dict, model)
-            optimizer.load_state_dict(sharded_optimizer_state_dict)
     stage = {
         "optimizer": optimizer,
         "scheduler": scheduler,
         "iter_num": checkpoint_iter_num,
     }
-    
-    # Autocast for mixed precision with fp16/bf16 compute types with fp32 params
-    if training_args.precision in ["16-mixed", "bf16-mixed"]:
-        autocast = torch.cuda.amp.autocast(enabled=True, dtype=compute_dtype)
-    else:
-        autocast = nullcontext()
-    scaler = ShardedGradScaler() if training_args.precision == "fp16_autocast" else None
-
-    init_start_event.record()
+    if training_args.checkpoint_dir is not None:
+        optim_checkpoint_path = Path(training_args.checkpoint_dir) / "optimizer.ckpt"
+        if optim_checkpoint_path.exists():
+            fabric.load(optim_checkpoint_path, stage, strict=True)
     fit(
-        local_rank=local_rank,
-        rank=rank,
+        fabric=fabric,
         model=model,
-        ref_model=None,
-        is_peft_model=model_args.use_lora,
+        ref_model=ref_model,
         stage=stage,
-        scaler=scaler,
-        autocast=autocast,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         training_args=training_args,
         validation_args=validation_args,
-        logger=logger,
-        train_adapter_name=model_args.train_adapter_name,
     )
-    # Synchronize at the end and record time
-    init_end_event.record()
-    dist.barrier()
+
     torch.cuda.synchronize()
-    
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state_dict = model.state_dict()
-        if rank==0:
-            save_full_path = Path(training_args.output_dir) / "final" / "model.pt"
-            print("Saving full model weights to", save_full_path)
-            torch.save(cpu_state_dict, save_full_path)
+    save_full_path = Path(training_args.output_dir) / "final" / "model.pt"
+    print("Saving full model weights to", save_full_path)
+    fabric.save(save_full_path, model)
 
 def setup(
     data_args: DataArguments,
@@ -319,11 +232,6 @@ def setup(
     training_args: TrainingArguments,
     validation_args: ValidationArgument,
 ):
-    # Set world size
-    if training_args.devices == -1:
-        world_size = torch.cuda.device_count()
-        training_args.devices = world_size
-    print(f"World size: {training_args.devices}")
     data_args, model_args, training_args, validation_args = validate_and_correct_args(
         data_args=data_args,
         model_args=model_args,
@@ -332,23 +240,89 @@ def setup(
     )
     seed_everything(training_args.seed)
 
+    data = MSMARCODataset(
+        data_dir=data_args.data_dir,
+        train_file=data_args.train_file,
+        val_file=data_args.val_file,
+        ignore_index=data_args.ignore_index,
+        seed=training_args.seed,
+        num_workers=data_args.num_workers,
+    )
+
     # Make necessary directories
     out_dir = Path(training_args.output_dir)
     os.makedirs(out_dir, exist_ok=True)
 
-    # Run
-    mp.spawn(
+    mp_policy = None
+    if training_args.precision == "bf16-true":
+        torch_dtype, compute_dtype = torch.bfloat16, torch.bfloat16
+    elif training_args.precision == "32":
+        torch_dtype, compute_dtype = torch.float32, torch.float16
+    elif training_args.precision == "16-mixed":
+        compute_dtype, torch_dtype = torch.float16, torch.float32
+        mp_policy = MixedPrecision(param_dtype=torch.float32, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
+    elif training_args.precision == "bf16-mixed":
+        compute_dtype, torch_dtype = torch.bfloat16, torch.float32
+        mp_policy = MixedPrecision(param_dtype=torch.float32, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
+    else:
+        raise ValueError("Invalid precision")
+
+    if training_args.nodes > 1 or training_args.devices > 1:
+        if training_args.strategy == 'fsdp':
+            cpu_offload=CPUOffload(offload_params=True) if training_args.use_cpu_offload else None,
+            auto_wrap_policy = get_wrapping_policy()
+            # Config sharding strategy
+            if training_args.sharding_strategy == "full_shard":
+                sharding_strategy = ShardingStrategy.FULL_SHARD
+            elif training_args.sharding_strategy == "shard_grad_op":
+                sharding_strategy = ShardingStrategy.SHARD_GRAD_OP
+            elif training_args.sharding_strategy == "ddp":
+                sharding_strategy = ShardingStrategy.NO_SHARD
+            elif training_args.sharding_strategy == "hybrid_full_shard":
+                sharding_strategy = ShardingStrategy.HYBRID_SHARD
+            elif training_args.sharding_strategy == "hybrid_shard_grad_op":
+                sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
+            else:
+                raise ValueError("Invalid sharding strategy")
+            strategy = FSDPStrategy(
+                cpu_offload=cpu_offload,
+                mixed_precision=mp_policy,
+                auto_wrap_policy=auto_wrap_policy,
+                activation_checkpointing_policy={MistralDecoderLayer},
+                sharding_strategy=sharding_strategy,
+                limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
+                sync_module_states=training_args.low_memory,
+            )
+        else:
+            strategy = training_args.strategy
+    
+    logger_dir = Path(training_args.output_dir) / f"logs_{training_args.logger_name}"
+    logger_name = f"dpoc-{model_args.model_name_or_path.split('/')[-1]}"
+    logger = choose_logger(training_args.logger_name, logger_dir, name=logger_name, log_interval=training_args.log_interval)
+
+    fabric = L.Fabric(
+        accelerator='gpu',
+        strategy=strategy,
+        devices=training_args.devices,
+        num_nodes=training_args.nodes,
+        precision=training_args.precision,
+        loggers=logger,
+    )
+    fabric.launch(
         main,
-        args=(training_args.devices, data_args, model_args, training_args, validation_args),
-        nprocs=training_args.devices,
-        join=True,
+        data=data,
+        model_args=model_args,
+        training_args=training_args,
+        validation_args=validation_args,
+        torch_dtype=torch_dtype,
+        compute_dtype=compute_dtype,
     )
 
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
-    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
-    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
+    # os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    # os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))

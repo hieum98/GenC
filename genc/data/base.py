@@ -23,6 +23,7 @@ class DataModule(LightningDataModule):
     @abstractmethod
     def connect(
         self, 
+        world_size: int = 1,
         tokenizer: PreTrainedTokenizerBase | None = None, 
         batch_size: int = 1, 
         max_seq_length = 512,

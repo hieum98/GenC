@@ -13,6 +13,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, transformer_auto_wrap_policy
 import lightning as L
+from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
+from lightning.pytorch.loggers import WandbLogger
 import wandb
 from transformers import PreTrainedModel
 from peft import PeftModel
@@ -51,6 +53,23 @@ class Logger:
 
     def finish(self, rank=0):
         if self.log_to == "wandb" and rank==0: wandb.finish()
+
+
+def choose_logger(
+    logger_name: Literal["csv", "tensorboard", "wandb"],
+    out_dir: Path,
+    name: str,
+    log_interval: int = 1,
+    resume: Optional[bool] = None,
+    **kwargs: Any,
+):
+    if logger_name == "csv":
+        return CSVLogger(root_dir=(out_dir / "logs"), name="csv", flush_logs_every_n_steps=log_interval, **kwargs)
+    if logger_name == "tensorboard":
+        return TensorBoardLogger(root_dir=(out_dir / "logs"), name="tensorboard", **kwargs)
+    if logger_name == "wandb":
+        return WandbLogger(project=name, resume=resume, **kwargs)
+    raise ValueError(f"`--logger_name={logger_name}` is not a valid option. Choose from 'csv', 'tensorboard', 'wandb'.")
 
 
 def get_default_supported_precision(training: bool) -> str:
@@ -367,7 +386,7 @@ def kl_loss(
     gen_logps = gen_logps.view(bs, -1)
     gen_logps = torch.softmax(gen_logps, dim=1) # [bs, 1 + topk_neg]
     # KL loss
-    kl = torch.nn.KLDivLoss(reduction="batchmean", log_target=True)
+    kl = torch.nn.KLDivLoss(reduction="mean", log_target=True)
     kl_loss = kl(dual_score, gen_logps)
     return kl_loss
 

@@ -158,6 +158,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        input_reps: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
         constrastive_labels: Optional[torch.LongTensor] = None,
         loss_weight_mask: Optional[torch.Tensor] = None,
@@ -220,7 +221,10 @@ class MistralEmbeddingLM(MistralForCausalLM):
                 output['loss'] = loss_gen
 
         if is_emb:
-            reps = self.encode(input_ids, attention_mask, prompt_length)
+            if input_reps is not None:
+                reps = input_reps
+            else:
+                reps = self.encode(input_ids, attention_mask, prompt_length)
             output['reps'] = reps
             if constrastive_labels is not None:
                 loss_emb = self.cons_loss_fn(reps, constrastive_labels, use_miner)

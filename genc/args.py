@@ -151,10 +151,6 @@ class TrainingArguments():
         default=False,
         metadata={"help": "Whether to use CPU offload for training."},
     )
-    use_activation_cpu_offload: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Whether to use CPU offload for activation."},
-    )
     no_sync: Optional[bool] = field(
         default=True,
         metadata={"help": "Whether to use no_sync for training."},

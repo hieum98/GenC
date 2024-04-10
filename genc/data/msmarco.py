@@ -115,6 +115,8 @@ class MSMARCODataset(DataModule):
 
     def connect(
             self, 
+            world_size: int = 1,
+            global_rank: int = 0,
             tokenizer: PreTrainedTokenizerBase | None = None, 
             batch_size: int = 1, 
             max_seq_length = 512,
@@ -123,6 +125,8 @@ class MSMARCODataset(DataModule):
             num_positive_samples: int = 1,
             prompt_loss_weight: float=0.02,
             ) -> None:
+        self.world_size = world_size
+        self.global_rank = global_rank
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.num_negative_samples = num_negative_samples
@@ -177,11 +181,19 @@ class MSMARCODataset(DataModule):
     def train_dataloader(self) -> DataLoader:
         if self.mode == 'dpoc':
             collator = DPOCCollator(tokenizer=self.tokenizer, label_pad_token_id=self.ignore_index)
+            if self.world_size > 1:
+                sampler = DistributedSampler(
+                    self.train_dataset, 
+                    seed=self.seed, 
+                    shuffle=True, 
+                    num_replicas=self.world_size,
+                    rank=self.global_rank,)
+            else:
+                sampler = None
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
-            generator=torch.Generator().manual_seed(self.seed),
+            sampler=sampler,
             num_workers=self.num_workers,
             collate_fn=collator,
         )
