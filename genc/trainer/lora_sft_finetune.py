@@ -88,63 +88,6 @@ def validate(
     return metrics
 
 
-def emb_forward_backward(
-    fabric: L.Fabric,
-    gc: GradCache,
-    model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
-    query_input_ids: torch.Tensor,
-    query_attention_mask: torch.Tensor,
-    query_labels: torch.Tensor,
-    query_prompt_length: torch.Tensor,
-    pos_input_ids: torch.Tensor,
-    pos_attention_mask: torch.Tensor,
-    pos_labels: torch.Tensor,
-    pos_prompt_length: torch.Tensor,
-    neg_input_ids: torch.Tensor,
-    neg_attention_mask: torch.Tensor,
-    neg_labels: torch.Tensor,
-    neg_prompt_length: torch.Tensor,
-    training_args: TrainingArguments,
-    ):
-    bs = query_input_ids.size(0)
-    num_pos = pos_input_ids.size(1)
-    num_neg = neg_input_ids.size(1)
-    # Embedding forward-backward pass
-    passages_input_ids = torch.cat([query_input_ids, pos_input_ids.view(bs * num_pos, -1), neg_input_ids.view(bs * num_neg, -1)], dim=0)
-    passages_attention_mask = torch.cat([query_attention_mask, pos_attention_mask.view(bs * num_pos, -1), neg_attention_mask.view(bs * num_neg, -1)], dim=0)
-    passages_prompt_length = torch.cat([query_prompt_length, pos_prompt_length.flatten(), neg_prompt_length.flatten()], dim=0)
-    passage_labels = torch.cat([query_labels, pos_labels.flatten(), neg_labels.flatten()], dim=0)
-    model_inputs = {
-        "input_ids": passages_input_ids,
-        "attention_mask": passages_attention_mask,
-        "prompt_length": passages_prompt_length,
-    }
-    other_kwargs = {
-        "is_emb": True,
-    }
-    if training_args.use_gc:
-        no_sync_except_last = torch.distributed.is_initialized()
-        inputs = (model_inputs, other_kwargs)
-        loss_emb, reps = gc(
-            inputs, 
-            no_sync_except_last=no_sync_except_last,
-            constrastive_labels=passage_labels,
-            use_miner=training_args.use_miner,
-            )
-        loss_emb = loss_emb / fabric.world_size
-        loss_emb.detach()
-    else:
-        model_inputs['constrastive_labels']= passage_labels
-        model_inputs['use_miner'] = training_args.use_miner
-        model_inputs.update(other_kwargs)
-        model_outputs = model(**model_inputs)
-        reps = model_outputs['reps']
-        loss_emb = model_outputs['loss_emb']
-        fabric.backward(loss_emb)
-    
-    return reps, loss_emb
-
-
 def fit(
     fabric: L.Fabric,
     model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
@@ -164,11 +107,9 @@ def fit(
 
     model.train()
     # initialize gradcache
-    loss_fn = model.cons_loss_fn # The loss function for the model which is required for Gradcache
     gc = None
     if training_args.use_gc:
         fabric.print("Initializing Gradcache")
-        assert loss_fn is not None, "You must provide a loss function when using Gradcache"
         scaler = torch.cuda.amp.GradScaler()
         def loss_fn(reps: torch.Tensor, constrastive_labels: torch.Tensor, use_miner: bool = False):
             return model(
@@ -235,26 +176,42 @@ def fit(
         choices_labels = batch["choices_labels"]
         choices_loss_weight_mask = batch["choices_loss_weight_mask"]
 
+        # Forward-backward pass for contrastive loss
         bs = query_input_ids.size(0)
-
-        loss_emb, _ = emb_forward_backward(
-            fabric=fabric,
-            gc=gc,
-            model=model,
-            query_input_ids=query_input_ids,
-            query_attention_mask=query_attention_mask,
-            query_labels=query_labels,
-            query_prompt_length=query_prompt_length,
-            pos_input_ids=pos_input_ids,
-            pos_attention_mask=pos_attention_mask,
-            pos_labels=pos_labels,
-            pos_prompt_length=pos_prompt_length,
-            neg_input_ids=neg_input_ids,
-            neg_attention_mask=neg_attention_mask,
-            neg_labels=neg_labels,
-            neg_prompt_length=neg_prompt_length,
-            training_args=training_args,
-        )
+        num_pos = pos_input_ids.size(1)
+        num_neg = neg_input_ids.size(1)
+        
+        passages_input_ids = torch.cat([query_input_ids, pos_input_ids.view(bs * num_pos, -1), neg_input_ids.view(bs * num_neg, -1)], dim=0)
+        passages_attention_mask = torch.cat([query_attention_mask, pos_attention_mask.view(bs * num_pos, -1), neg_attention_mask.view(bs * num_neg, -1)], dim=0)
+        passages_prompt_length = torch.cat([query_prompt_length, pos_prompt_length.flatten(), neg_prompt_length.flatten()], dim=0)
+        passage_labels = torch.cat([query_labels, pos_labels.flatten(), neg_labels.flatten()], dim=0)
+        model_inputs = {
+            "input_ids": passages_input_ids,
+            "attention_mask": passages_attention_mask,
+            "prompt_length": passages_prompt_length,
+        }
+        other_kwargs = {
+            "is_emb": True,
+        }
+        if training_args.use_gc:
+            no_sync_except_last = torch.distributed.is_initialized()
+            inputs = (model_inputs, other_kwargs)
+            loss_emb, reps = gc(
+                inputs, 
+                no_sync_except_last=no_sync_except_last,
+                constrastive_labels=passage_labels,
+                use_miner=training_args.use_miner,
+                )
+            loss_emb = loss_emb / fabric.world_size
+            loss_emb.detach()
+        else:
+            model_inputs['constrastive_labels']= passage_labels
+            model_inputs['use_miner'] = training_args.use_miner
+            model_inputs.update(other_kwargs)
+            model_outputs = model(**model_inputs)
+            reps = model_outputs['reps']
+            loss_emb = model_outputs['loss_emb']
+            fabric.backward(loss_emb)
 
         cons_running_loss.update(loss_emb.detach())
 

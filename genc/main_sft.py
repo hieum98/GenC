@@ -274,8 +274,9 @@ def setup(
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
                 sync_module_states=training_args.low_memory,
             )
-        else:
-            strategy = training_args.strategy
+    else:
+        strategy = "auto"
+
     
     logger_dir = Path(training_args.output_dir) / f"logs_{training_args.logger_name}"
     logger_name = f"dpoc-{model_args.model_name_or_path.split('/')[-1]}"

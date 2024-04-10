@@ -42,7 +42,7 @@ low_memory: True
 
 #Training data args
 global_batch_size: 64
-mini_batch_size: 1
+mini_batch_size: 16
 max_seq_length: 2048
 num_train_epochs: 2
 # max_steps: 10000
@@ -51,8 +51,8 @@ num_negative_samples: 64
 topk_neg: 32
 
 # Gradcache settings
-use_gc: True 
-gc_mini_batch_size: 1
+use_gc: True
+gc_mini_batch_size: 8
 
 # Objective args
 prompt_loss_weight: 0.05
@@ -62,7 +62,7 @@ dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.0002 # 1e-4 (5e-5@16)
+learning_rate: 0.0002
 warmup_steps: 50
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
