@@ -52,7 +52,7 @@ topk_neg: 32
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 8
+gc_mini_batch_size: 64
 
 # Objective args
 prompt_loss_weight: 0.05
@@ -62,7 +62,7 @@ dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.0002
+learning_rate: 0.00005 # 5e-5@32
 warmup_steps: 50
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
