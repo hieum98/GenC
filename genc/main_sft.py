@@ -1,5 +1,6 @@
 import functools
 import logging
+from math import sqrt
 import os
 from contextlib import nullcontext
 from pathlib import Path
@@ -170,9 +171,12 @@ def main(
         )
 
     # Config optimizer and scheduler
+    # Scale learning rate by batch size
+    bs = training_args.batch_size(fabric.world_size)
+    lr = training_args.learning_rate * sqrt(bs//32) 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
-        lr=training_args.learning_rate, 
+        lr=lr, 
         weight_decay=training_args.weight_decay,
         betas=(training_args.adam_beta1, training_args.adam_beta2),
         )
@@ -277,7 +281,6 @@ def setup(
             )
     else:
         strategy = "auto"
-
     
     logger_dir = Path(training_args.output_dir) / f"logs_{training_args.logger_name}"
     logger_name = f"dpoc-{model_args.model_name_or_path.split('/')[-1]}"
