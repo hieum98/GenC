@@ -37,7 +37,7 @@ mode: dpoc
 strategy: fsdp
 sharding_strategy: full_shard
 use_cpu_offload: True
-use_activation_cpu_offload: False
+use_activation_cpu_offload: True
 no_sync: True
 low_memory: True
 reentrant_checkpointing: True
@@ -50,11 +50,11 @@ num_train_epochs: 3
 max_steps: 5000
 num_positive_samples: 1
 num_negative_samples: 32
-topk_neg: 16
+topk_neg: 8
 
 # Gradcache settings
 use_gc: True 
-gc_mini_batch_size: 4
+gc_mini_batch_size: 1
 
 # Objective args
 prompt_loss_weight: 0.05

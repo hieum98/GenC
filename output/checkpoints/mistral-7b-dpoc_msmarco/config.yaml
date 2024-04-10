@@ -5,10 +5,10 @@ checkpoint_dir: null
 devices: 4
 dpo_beta: 0.1
 dpo_loss_type: sigmoid
-gc_mini_batch_size: 4
+gc_mini_batch_size: 1
 global_batch_size: 128
 grad_norm_clip: 0.3
-gradient_checkpointing: true
+gradient_checkpointing: false
 label_smoothing_factor: 0.1
 learning_rate: 0.0002
 log_interval: 1
@@ -33,8 +33,8 @@ save_interval: 1000
 seed: 1234
 sharding_strategy: full_shard
 strategy: fsdp
-topk_neg: 16
-use_activation_cpu_offload: false
+topk_neg: 8
+use_activation_cpu_offload: true
 use_cpu_offload: true
 use_gc: true
 use_miner: false
