@@ -31,8 +31,8 @@ from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBas
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 
 from genc.data.base import DataModule
-from genc.data.msmarco import MSMARCODataset, get_dataloader
-from genc.trainer.lora_finetune import fit
+from genc.data.msmarco import MSMARCODataset
+from genc.trainer.lora_sft_finetune import fit
 from genc.trainer.trainer_utils import (
     choose_logger,
     get_default_supported_precision,
@@ -142,24 +142,6 @@ def main(
         gradient_checkpointing=training_args.gradient_checkpointing,
         attn_implementation=model_args.attn_implementation,
     )
-    ref_model, _ = load_model(
-        model_weights_name_or_path=model_args.model_name_or_path,
-        use_bidirectional=model_args.use_bidirectional,
-        normalized=model_args.normalized,
-        pooling_method=model_args.pooling_method,
-        loss_gen_type=model_args.loss_gen_type,
-        temperature=model_args.temperature,
-        quantization=True,
-        use_lora=False,
-        inference=True,
-        low_memory=training_args.low_memory,
-        torch_dtype=torch_dtype,
-        compute_dtype=compute_dtype,
-        precision=training_args.precision,
-        rank=fabric.global_rank,
-        local_rank=fabric.local_rank,
-        attn_implementation=model_args.attn_implementation,
-    )
 
     # Load model checkpoint this will load the model state dict into cpu memory 
     if training_args.checkpoint_dir is not None:
@@ -213,7 +195,6 @@ def main(
     fit(
         fabric=fabric,
         model=model,
-        ref_model=ref_model,
         stage=stage,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
@@ -321,8 +302,8 @@ def setup(
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
-    # os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
-    # os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
+    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))
