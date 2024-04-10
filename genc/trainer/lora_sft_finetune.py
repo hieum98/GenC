@@ -342,17 +342,14 @@ def fit(
 
         if training_args.save_interval is not None and iter_num % training_args.save_interval == 0:
             torch.cuda.synchronize()
-            optim_checkpoint_path = Path(training_args.output_dir) / "checkpoints" / f"step_{iter_num}" / "optimizer.ckpt"
+            checkpoint_path = Path(training_args.output_dir) / "checkpoints" / f"step_{iter_num}.ckpt"
             stage = {
                     "iter_num": iter_num,
                     "optimizer": optimizer,
                     "scheduler": scheduler,
+                    "model": model,
                 }
-            fabric.save(optim_checkpoint_path, stage)
-            fabric.print(f"Checkpoint saved at {optim_checkpoint_path}")
-            save_full_path = Path(training_args.output_dir) / "checkpoints" / f"step_{iter_num}" / "model.ckpt"
-            fabric.print("Saving full model weights to", save_full_path)
-            fabric.save(save_full_path, model)
+            fabric.save(checkpoint_path, stage)
 
     
 

@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:2            # Request N GPUs per machine
 #SBATCH --mem-per-gpu=100G       # Request N GB per GPU
 #SBATCH --constraint=gpu-80gb,no-mig
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=15
 #SBATCH --job-name=dpoc7b
 #SBATCH --partition=preempt
 #SBATCH --account=uonlp
@@ -25,5 +25,5 @@ cd /home/hieum/uonlp/LLM_Emb
 # export NCCL_SOCKET_IFNAME=^docker0,lo
 
 # Run your training script
-srun python -m genc.main scripts/configs/mistral-7b-dpoc_2_node_2gpus.yaml
+srun python -m genc.main_sft scripts/configs/mistral-7b-dpoc_2_node_2gpus.yaml
 

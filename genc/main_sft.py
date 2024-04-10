@@ -247,7 +247,8 @@ def setup(
         mp_policy = MixedPrecision(param_dtype=torch.float32, reduce_dtype=torch.float32, buffer_dtype=torch.float32)
     else:
         raise ValueError("Invalid precision")
-
+    
+    strategy = training_args.strategy
     if training_args.nodes > 1 or training_args.devices > 1:
         if training_args.strategy == 'fsdp':
             cpu_offload=CPUOffload(offload_params=True) if training_args.use_cpu_offload else None,
@@ -274,8 +275,6 @@ def setup(
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
                 sync_module_states=training_args.low_memory,
             )
-        else:
-            strategy = training_args.strategy
     
     logger_dir = Path(training_args.output_dir) / f"logs_{training_args.logger_name}"
     logger_name = f"dpoc-{model_args.model_name_or_path.split('/')[-1]}"
@@ -302,8 +301,8 @@ def setup(
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
-    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
-    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
+    # os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    # os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))

@@ -70,8 +70,8 @@ gradient_checkpointing: True
 
 # Checkpointing args
 logger_name: wandb
-output_dir: output/checkpoints/mistral-7b-dpoc_msmarco/2n2g
-save_interval: 500
+output_dir: output/checkpoints/7b-esft/2n2g
+save_interval: 50
 log_interval: 1
 
 
