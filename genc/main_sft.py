@@ -145,7 +145,7 @@ def main(
 
     # Load model checkpoint this will load the model state dict into cpu memory 
     if training_args.checkpoint_dir is not None:
-        full_state_dict_model_path = Path(training_args.checkpoint_dir) / "model.ckpt"
+        full_state_dict_model_path = Path(training_args.checkpoint_dir)
         if isinstance(fabric.strategy, FSDPStrategy):
             fabric.load_raw(full_state_dict_model_path, model, strict=False)
         else:
@@ -189,7 +189,7 @@ def main(
         "iter_num": checkpoint_iter_num,
     }
     if training_args.checkpoint_dir is not None:
-        optim_checkpoint_path = Path(training_args.checkpoint_dir) / "optimizer.ckpt"
+        optim_checkpoint_path = Path(training_args.checkpoint_dir)
         if optim_checkpoint_path.exists():
             fabric.load(optim_checkpoint_path, stage, strict=True)
     fit(
