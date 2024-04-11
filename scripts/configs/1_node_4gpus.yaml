@@ -41,7 +41,7 @@ no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 64
+global_batch_size: 128
 mini_batch_size: 16
 max_seq_length: 2048
 num_train_epochs: 2
@@ -52,7 +52,7 @@ topk_neg: 32
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 64
+gc_mini_batch_size: 32
 
 # Objective args
 prompt_loss_weight: 0.05

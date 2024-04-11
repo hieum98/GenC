@@ -16,14 +16,8 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.distributed.fsdp import MixedPrecision, FullyShardedDataParallel as FSDP, FullStateDictConfig, StateDictType
-from torch.distributed.fsdp.api import BackwardPrefetch, CPUOffload, ShardingStrategy
+from torch.distributed.fsdp.api import CPUOffload, ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    checkpoint_wrapper,
-    offload_wrapper,
-    CheckpointImpl,
-    apply_activation_checkpointing,
-)
 import lightning as L
 from lightning import seed_everything
 from lightning.fabric.strategies import FSDPStrategy
@@ -144,15 +138,6 @@ def main(
         attn_implementation=model_args.attn_implementation,
     )
 
-    # Load model checkpoint this will load the model state dict into cpu memory 
-    if training_args.checkpoint_dir is not None:
-        full_state_dict_model_path = Path(training_args.checkpoint_dir)
-        if isinstance(fabric.strategy, FSDPStrategy):
-            fabric.load_raw(full_state_dict_model_path, model, strict=False)
-        else:
-            model_checkpoint = lazy_load(full_state_dict_model_path)
-            model.load_state_dict(model_checkpoint, strict=False)
-
     fabric.log_dict({"memory/allocated_after_model_created": torch.cuda.memory_allocated(fabric.local_rank)})
     fabric.log_dict({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(fabric.local_rank)})
     model = fabric.setup_module(model)
@@ -188,14 +173,17 @@ def main(
         )
     checkpoint_iter_num = 0
     stage = {
+        "iter_num": checkpoint_iter_num,
         "optimizer": optimizer,
         "scheduler": scheduler,
-        "iter_num": checkpoint_iter_num,
+        "model": model,
     }
-    if training_args.checkpoint_dir is not None:
-        optim_checkpoint_path = Path(training_args.checkpoint_dir)
+    if training_args.checkpoint_path is not None:
+        optim_checkpoint_path = Path(training_args.checkpoint_path)
         if optim_checkpoint_path.exists():
-            fabric.load(optim_checkpoint_path, stage, strict=True)
+            fabric.load(optim_checkpoint_path, stage, strict=False)
+
+    model = stage.pop("model")
     fit(
         fabric=fabric,
         model=model,
@@ -207,7 +195,7 @@ def main(
     )
 
     torch.cuda.synchronize()
-    save_full_path = Path(training_args.output_dir) / "final" / "model.pt"
+    save_full_path = Path(training_args.output_dir) / "final" / "model.ckpt"
     print("Saving full model weights to", save_full_path)
     fabric.save(save_full_path, model)
 
@@ -277,6 +265,7 @@ def setup(
                 activation_checkpointing_policy={MistralDecoderLayer},
                 sharding_strategy=sharding_strategy,
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
+                state_dict_type="full",
                 sync_module_states=training_args.low_memory,
             )
     else:
@@ -307,8 +296,8 @@ def setup(
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
-    # os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
-    # os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
+    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))

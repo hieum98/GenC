@@ -298,8 +298,8 @@ def fit(
             fabric.barrier()
 
         if training_args.save_interval is not None and iter_num % training_args.save_interval == 0:
-            torch.cuda.synchronize()
             checkpoint_path = Path(training_args.output_dir) / "checkpoints" / f"step_{iter_num}.ckpt"
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             stage = {
                     "iter_num": iter_num,
                     "optimizer": optimizer,

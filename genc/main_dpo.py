@@ -163,12 +163,13 @@ def main(
     )
 
     # Load model checkpoint this will load the model state dict into cpu memory 
-    if training_args.checkpoint_dir is not None:
-        full_state_dict_model_path = Path(training_args.checkpoint_dir) / "model.ckpt"
+    if training_args.checkpoint_path is not None:
+        full_state_dict_model_path = Path(training_args.checkpoint_path)
         if isinstance(fabric.strategy, FSDPStrategy):
             fabric.load_raw(full_state_dict_model_path, model, strict=False)
         else:
             model_checkpoint = lazy_load(full_state_dict_model_path)
+            model_checkpoint = model_checkpoint.get("model", model_checkpoint)
             model.load_state_dict(model_checkpoint, strict=False)
 
     fabric.log_dict({"memory/allocated_after_model_created": torch.cuda.memory_allocated(fabric.local_rank)})
@@ -211,8 +212,8 @@ def main(
         "scheduler": scheduler,
         "iter_num": checkpoint_iter_num,
     }
-    if training_args.checkpoint_dir is not None:
-        optim_checkpoint_path = Path(training_args.checkpoint_dir) / "optimizer.ckpt"
+    if training_args.checkpoint_path is not None:
+        optim_checkpoint_path = Path(training_args.checkpoint_path)
         if optim_checkpoint_path.exists():
             fabric.load(optim_checkpoint_path, stage, strict=True)
     fit(

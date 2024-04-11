@@ -196,6 +196,7 @@ def online_hard_example_mining(
 
 def compute_kl_loss(
     model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
+    ref_model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
     emb_input_chunk: Dict[str, torch.Tensor],
     gen_input_chunk: Dict[str, torch.Tensor],
     chunksize: int,
@@ -249,8 +250,26 @@ def compute_kl_loss(
     # TODO: change to rank score i.e, dpo_gen_logp/ref_gen_logp
     with torch.no_grad():
         pair_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+        ref_pair_logits = ref_model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+    gen_logps = get_batch_logps(
+        logits=pair_logits,
+        labels=pair_labels,
+        loss_weight_mask=pair_loss_weight_mask,
+        average_log_prob=True
+    ) # [bs * (1 + topk_neg)]
+    gen_logps = gen_logps.view(gen_logps.size(0), -1)
+    ref_logps = get_batch_logps(
+        logits=ref_pair_logits,
+        labels=pair_labels,
+        loss_weight_mask=pair_loss_weight_mask,
+        average_log_prob=True
+    )
+    ref_logps = ref_logps.view(ref_logps.size(0), -1)
+    gen_score = gen_logps - ref_logps # [bs, 1 + topk_neg]
+    gen_score = torch.softmax(gen_score, dim=-1) # [bs, 1 + topk_neg]
+
     # KL loss
-    loss_kl = kl_loss(emb_reps, pair_logits, pair_labels, pair_loss_weight_mask, bs=chunksize)
+    loss_kl = kl_loss(emb_reps, gen_score, bs=chunksize)
     return loss_kl
 
 
@@ -487,6 +506,7 @@ def fit(
             with fabric.no_backward_sync(model, enabled=is_accumulating):
                 loss_kl = compute_kl_loss(
                     model=model,
+                    ref_model=ref_model,
                     emb_input_chunk=emb_input_chunk,
                     gen_input_chunk=gen_input_chunk,
                     chunksize=chunksize,

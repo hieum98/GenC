@@ -290,7 +290,7 @@ class TrainingArguments():
         default="output",
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
         )
-    checkpoint_dir: Optional[str] = field(
+    checkpoint_path: Optional[str] = field(
         default=None,
         metadata={"help": "The directory to save checkpoints."},
         )
