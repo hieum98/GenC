@@ -1,7 +1,8 @@
 # Data args
+data_name: msmarco
 data_dir: /mnt/hieu/msmarco
 train_file: msmarco_hard.jsonl
-val_file: msmarco_dev.jsonl
+val_file: msmarco_test.jsonl
 num_workers: 20
 
 # Model args
@@ -22,16 +23,8 @@ lora_dropout: 0.0
 quantization: False
 
 # Training args
-# Machine args
-nodes: 1
-devices: 4
-master_addr: localhost
-master_port: "12345"
-
-# Training args
 seed: 1234
 precision: bf16-true
-mode: dpoc
 
 # FSDP args
 strategy: fsdp
@@ -44,7 +37,7 @@ low_memory: True
 global_batch_size: 128
 mini_batch_size: 16
 max_seq_length: 2048
-num_train_epochs: 2
+num_train_epochs: 1
 # max_steps: 10000
 num_positive_samples: 1
 num_negative_samples: 64
@@ -62,15 +55,14 @@ dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.00005 # 5e-5@32
-warmup_steps: 50
+learning_rate: 0.0002 # 2e-4@32
+warmup_steps: 10
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
 gradient_checkpointing: True
 
 # Checkpointing args
 logger_name: wandb
-output_dir: output/checkpoints/7b-esft_msmarco/
 save_interval: 50
 log_interval: 1
 

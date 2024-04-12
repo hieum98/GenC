@@ -1,33 +1,23 @@
-import functools
 import logging
 from math import sqrt
 import os
-from contextlib import nullcontext
 from pathlib import Path
-from pprint import pprint
-import sys
-from weakref import ref
 import yaml
 from dataclasses import asdict
-import time
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
-import bitsandbytes as bnb
 import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
-from torch.distributed.fsdp import MixedPrecision, FullyShardedDataParallel as FSDP, FullStateDictConfig, StateDictType
+from torch.distributed.fsdp import MixedPrecision
 from torch.distributed.fsdp.api import CPUOffload, ShardingStrategy
-from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 import lightning as L
 from lightning import seed_everything
 from lightning.fabric.strategies import FSDPStrategy
-from lightning.fabric.utilities.load import _lazy_load as lazy_load
-from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser, AutoTokenizer
+from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 
 from genc.data.base import DataModule
+from genc.data.medi2bge import MEDIDataset
 from genc.data.msmarco import MSMARCODataset
-from genc.trainer.lora_sft_finetune import fit
+from genc.trainer.lora_sft_finetune import fit as sft_fit
+from genc.trainer.lora_dpo_finetune import fit as dpo_fit
 from genc.trainer.trainer_utils import (
     choose_logger,
     get_default_supported_precision,
@@ -76,14 +66,13 @@ def get_dataloaders(
     tokenizer: PreTrainedTokenizerBase,
     training_args: TrainingArguments,       
 ):  
-    world_size = training_args.nodes * training_args.devices 
     data.connect(
-        world_size=world_size,
+        world_size=fabric.world_size,
         global_rank=fabric.global_rank,
         tokenizer=tokenizer, 
-        batch_size=training_args.batch_size(world_size), 
+        batch_size=training_args.batch_size(fabric.world_size), 
+        global_batch_size=training_args.global_batch_size,
         max_seq_length=training_args.max_seq_length,
-        mode=training_args.mode,
         num_negative_samples=training_args.num_negative_samples,
         num_positive_samples=training_args.num_positive_samples,
         prompt_loss_weight=training_args.prompt_loss_weight,
@@ -138,11 +127,27 @@ def main(
         attn_implementation=model_args.attn_implementation,
     )
 
-    fabric.log_dict({"memory/allocated_after_model_created": torch.cuda.memory_allocated(fabric.local_rank)})
-    fabric.log_dict({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(fabric.local_rank)})
+    if training_args.mode == 'edpo':
+        assert model_args.ref_model_name_or_path is not None, "Reference model must be provided for EDPO training."
+        ref_model, _ = load_model(
+            model_weights_name_or_path=model_args.ref_model_name_or_path,
+            use_bidirectional=model_args.use_bidirectional,
+            normalized=model_args.normalized,
+            pooling_method=model_args.pooling_method,
+            loss_gen_type=model_args.loss_gen_type,
+            temperature=model_args.temperature,
+            quantization=True,
+            use_lora=False,
+            inference=True,
+            low_memory=training_args.low_memory,
+            torch_dtype=torch_dtype,
+            compute_dtype=compute_dtype,
+            precision=training_args.precision,
+            rank=fabric.global_rank,
+            local_rank=fabric.local_rank,
+            attn_implementation=model_args.attn_implementation,
+        )
     model = fabric.setup_module(model)
-    fabric.log_dict({"memory/allocated_after_model_setup": torch.cuda.memory_allocated(fabric.local_rank)})
-    fabric.log_dict({"memory/reserved_after_model_setup": torch.cuda.memory_reserved(fabric.local_rank)})
 
     # Load the data
     train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, training_args)
@@ -184,18 +189,32 @@ def main(
             fabric.load(optim_checkpoint_path, stage, strict=False)
 
     model = stage.pop("model")
-    fit(
-        fabric=fabric,
-        model=model,
-        stage=stage,
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
-        training_args=training_args,
-        validation_args=validation_args,
-    )
+    if training_args.mode == 'efst':
+        sft_fit(
+            fabric=fabric,
+            model=model,
+            stage=stage,
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            training_args=training_args,
+            validation_args=validation_args,
+        )
+    elif training_args.mode == 'edpo':
+        dpo_fit(
+            model=model,
+            ref_model=ref_model,
+            stage=stage,
+            train_dataloader=train_dataloader,
+            val_dataloader=val_dataloader,
+            training_args=training_args,
+            validation_args=validation_args,
+        )
+    else:
+        raise ValueError(f"Invalid mode {training_args.mode}")
 
     torch.cuda.synchronize()
-    save_full_path = Path(training_args.output_dir) / "final" / "model.ckpt"
+    save_full_path = Path(training_args.output_dir)/ training_args.mode / "final" / "model.ckpt"
+    save_full_path.mkdir(parents=True, exist_ok=True)
     print("Saving full model weights to", save_full_path)
     fabric.save(save_full_path, model)
 
@@ -213,14 +232,25 @@ def setup(
     )
     seed_everything(training_args.seed)
 
-    data = MSMARCODataset(
-        data_dir=data_args.data_dir,
-        train_file=data_args.train_file,
-        val_file=data_args.val_file,
-        ignore_index=data_args.ignore_index,
-        seed=training_args.seed,
-        num_workers=data_args.num_workers,
-    )
+    if data_args.data_name == 'msmarco':
+        data = MSMARCODataset(
+            data_dir=data_args.data_dir,
+            train_file=data_args.train_file,
+            val_file=data_args.val_file,
+            ignore_index=data_args.ignore_index,
+            seed=training_args.seed,
+            num_workers=data_args.num_workers,
+        )
+    elif data_args.data_name == 'medi2bge':
+        data = MEDIDataset(
+            data_dir=data_args.data_dir,
+            val_file=data_args.val_file,
+            seed=training_args.seed,
+            num_workers=data_args.num_workers,
+            ignore_index=data_args.ignore_index,
+        )
+    else:
+        raise ValueError(f"We currently have not supported this dataset {data_args.data_name}")
 
     # Make necessary directories
     out_dir = Path(training_args.output_dir)
@@ -300,16 +330,45 @@ if __name__=='__main__':
     os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
-    parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))
-    logging.info(f"Sys args {sys.argv}")
-    if len(sys.argv) > 0 and sys.argv[-1].endswith(".yaml"):
-        # If we pass only one argument to the script, and it's the path to a yaml file,
-        # let's parse it to get our arguments.
-        logging.info(f"Loading yaml config {sys.argv[-1]}")
-        data_args, model_args, training_args, validation_args = parser.parse_yaml_file(yaml_file=os.path.abspath(sys.argv[-1]))
-    else:
-        logging.info("No config file passed, using command line arguments.")
-        data_args, model_args, training_args, validation_args = parser.parse_args_into_dataclasses()
+    import argparse
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--config_file", type=str, required=True, help="Path to the yaml config file",
+    )
+    parser.add_argument(
+        "--nodes", type=int, default=1, help="Number of nodes"
+    )
+    parser.add_argument(
+        "--devices", type=int, default=1, help="Number of devices"
+    )
+    parser.add_argument(
+        "--mode", type=str, default="efst", help="Training mode"
+    )
+    parser.add_argument(
+        "--ref_model_name_or_path", type=str, default=None, help="Reference model name or path"
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default="output", help="Output directory"
+    )
+    parser.add_argument(
+        "--checkpoint_path", type=str, default=None, help="Checkpoint path to resume training"
+    )
+
+    args = parser.parse_args()
+    config_file = args.config_file
+
+    hf_parser = HfArgumentParser((DataArguments, ModelArguments, TrainingArguments, ValidationArgument))
+    logging.info(f"Loading yaml config {config_file}")
+    data_args, model_args, training_args, validation_args = hf_parser.parse_yaml_file(yaml_file=config_file)
+    # Add read-only arguments
+    training_args.nodes = args.nodes
+    training_args.devices = args.devices
+    training_args.mode = args.mode
+    model_args.ref_model_name_or_path = args.ref_model_name_or_path
+    training_args.output_dir = args.output_dir
+    training_args.checkpoint_path = args.checkpoint_path
     
     setup(
         data_args=data_args,

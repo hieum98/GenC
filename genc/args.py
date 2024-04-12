@@ -9,14 +9,19 @@ class DataArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
+    data_name: str = field(
+        default="medi2bge",
+        metadata={"help": "The name of the dataset."}
+        )
     data_dir: str = field(
         metadata={"help": "The input data dir. Should contain the .jsonl files for the task."}
         )
     train_file: str = field(
+        default=None,
         metadata={"help": "The input training data file (a jsonl file)."}
         )
     val_file: str = field(
-        default="msmarco_dev.jsonl",
+        default=None,
         metadata={"help": "The input validation data file (a jsonl file)."}
         )
     test_file: Optional[str] = field(
@@ -40,6 +45,10 @@ class ModelArguments:
     # General model setting
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+        )
+    ref_model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "The path for reference model which is path to pretrained model or model identifier from huggingface.co/models"}
         )
     use_bidirectional: bool = field(default=False, metadata={"help": "Whether to use bidirectional attention in compute encodings"})
     attn_implementation: str = field(default='sdpa', metadata={"help": "eager/sdpa/flash_attention_2"})
@@ -115,14 +124,6 @@ class TrainingArguments():
         default=1,
         metadata={"help": "Number of devices to use for training."},
         )
-    master_addr: Optional[str] = field(
-        default="localhost",
-        metadata={"help": "Master address for distributed training."},
-        )
-    master_port: Optional[str] = field(
-        default="12355",
-        metadata={"help": "Master port for distributed training."},
-        )
     
     # Training settings
     seed: int = field(
@@ -134,8 +135,8 @@ class TrainingArguments():
         metadata={"help": "Precision to use for training. Should be one of ['bf16-true', '16-true', '32-true']"},
         )
     mode: str = field(
-        default='dpoc',
-        metadata={"help": "The mode of training. Should be one of ['dpoc', 'emb']"},
+        default='edpo',
+        metadata={"help": "The mode of training. Should be one of ['edpo', 'esft']"},
         )
     
     # FSDP settings
@@ -271,7 +272,6 @@ class TrainingArguments():
         default=False,
         metadata={"help": "Whether to use gradient checkpointing."},
         )
-    
     
     # Checkpointing settings
     logger_name: str = field(

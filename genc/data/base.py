@@ -2,15 +2,13 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from functools import partial
 import logging
+import math
 import random
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
-from numpy import pad
 import numpy as np
-import scipy as sp
 import torch
-from torch import Tensor, neg
-from torch.utils.data import Dataset
+from torch import Tensor
+from torch.utils.data import Dataset, Sampler
 from lightning import LightningDataModule
 from transformers import PreTrainedTokenizerBase, BatchEncoding
 import datasets
@@ -20,14 +18,14 @@ from genc import special_tokens
 
 class DataModule(LightningDataModule):
     """Base DataModule class for all datasets."""
-    @abstractmethod
     def connect(
         self, 
         world_size: int = 1,
+        global_rank: int = 0,
         tokenizer: PreTrainedTokenizerBase | None = None, 
         batch_size: int = 1, 
+        global_batch_size: int = 1,
         max_seq_length = 512,
-        mode: str = 'dpoc',
         num_negative_samples: int = 1,
         num_positive_samples: int = 1,
         prompt_loss_weight: float=0.02,
@@ -35,6 +33,15 @@ class DataModule(LightningDataModule):
         """All settings that can't be determined at the time of instantiation need to be passed through here
         before any dataloaders can be accessed.
         """
+        self.world_size = world_size
+        self.global_rank = global_rank
+        self.tokenizer = tokenizer
+        self.batch_size = batch_size
+        self.global_batch_size = global_batch_size
+        self.num_negative_samples = num_negative_samples
+        self.num_positive_samples = num_positive_samples
+        self.prompt_loss_weight = prompt_loss_weight
+        self.max_seq_length = 512 if max_seq_length is None else max_seq_length
 
     def setup(self, stage: str="") -> None:
         pass
@@ -79,6 +86,7 @@ class DPOCDataset(Dataset):
     def tokenize_emb_example(
             self, 
             example: Tuple[str, str],
+            idx: int,
             ) -> BatchEncoding:
         emb_prompt = self.emb_prompt_format.format(prompt=example[0])
         emb_example = self.emb_example_format.format(prompt=example[0], example=example[1])
@@ -101,6 +109,7 @@ class DPOCDataset(Dataset):
         if len(prompt_ids) > len(model_inputs["input_ids"]):
             raise ValueError("Prompt is longer than the model input")
         model_inputs["prompt_length"] = len(prompt_ids)
+        model_inputs['label'] = idx
         return model_inputs
     
     def tokenize_gen_example(
@@ -152,6 +161,7 @@ class DPOCDataset(Dataset):
         return model_inputs
     
     def __getitem__(self, index: int) -> Dict[str, BatchEncoding]:
+        datasize = len(self.data)
         example = self.data[index]
         query: Tuple[str, str] = example['query']
         pos_passages: List[Tuple[str, str]] = example['pos']
@@ -163,20 +173,151 @@ class DPOCDataset(Dataset):
         neg_passages = random.sample(neg_passages, self.num_negative_samples) if len(neg_passages) > self.num_negative_samples \
             else random.choices(neg_passages, k=self.num_negative_samples) # sample negative passages
         
-        encoded_query = self.tokenize_emb_example(query)
-        encoded_pos = [self.tokenize_emb_example(pos) for pos in pos_passages]
-        encoded_neg = [self.tokenize_emb_example(neg) for neg in neg_passages]
+        encoded_query = self.tokenize_emb_example(query, index)
+        encoded_pos = [self.tokenize_emb_example(pos, index) for pos in pos_passages]
+        # Add the index to the negative examples and consider it as label for the negative example. i.e., neg_idx = datasize + index*num_negative_samples + i, that guarantees the label is unique
+        encoded_neg = [self.tokenize_emb_example(neg, datasize + index*self.num_negative_samples + i) for i, neg in enumerate(neg_passages)]
 
         encoded_choices = [self.tokenize_gen_example(f"{gen_prompt}\n{query[1]}", pos[1]) for pos in pos_passages]
         encoded_rejects = [self.tokenize_gen_example(f"{gen_prompt}\n{query[1]}", neg[1]) for neg in neg_passages]
 
         return {
-            "query": encoded_query, # + "promt_length"
-            "pos": encoded_pos, # + "promt_length"
-            "neg": encoded_neg, # + "promt_length"
+            "query": encoded_query, # + ["promt_length", "label"]
+            "pos": encoded_pos, # + ["promt_length", "label"]
+            "neg": encoded_neg, # + ["promt_length", "label"]
             "choices": encoded_choices, # + ["labels", "loss_weight_mask"]
             "rejects": encoded_rejects, # + ["labels", "loss_weight_mask"]
         }
+
+
+class MultipleDPOCDataset(DPOCDataset):
+    def __init__(
+            self,
+            data: List[datasets.Dataset],
+            tokenizer: PreTrainedTokenizerBase,
+            num_negative_samples: int,
+            num_positive_samples: int,
+            max_seq_length: int=512,
+            prompt_loss_weight: float=0.02,
+            base_bos: str = special_tokens.base_bos,
+            user_bos: str = special_tokens.user_bos,
+            user_eos: str = special_tokens.user_eos,
+            embed_bos: str = special_tokens.embed_bos,
+            embed_eos: str = special_tokens.embed_eos,
+            assistant_bos: str = special_tokens.assistant_bos,
+            assistant_eos: str = special_tokens.assistant_eos,
+            ) -> None:
+        full_data = datasets.concatenate_datasets(data)
+        self.each_data_sizes = [len(d) for d in data]
+        super().__init__(
+            data=full_data,
+            tokenizer=tokenizer,
+            num_negative_samples=num_negative_samples,
+            num_positive_samples=num_positive_samples,
+            max_seq_length=max_seq_length,
+            prompt_loss_weight=prompt_loss_weight,
+            base_bos=base_bos,
+            user_bos=user_bos,
+            user_eos=user_eos,
+            embed_bos=embed_bos,
+            embed_eos=embed_eos,
+            assistant_bos=assistant_bos,
+            assistant_eos=assistant_eos,
+        )
+
+
+class MutipleDPOCSampler(Sampler):
+    """
+    A sampler for MultipleDPOCDataset that guarantees in data in each batch comes from the same dataset.
+    """
+    def __init__(
+            self,
+            dataset: MultipleDPOCDataset,
+            global_batch_size: int,
+            shuffle: bool=True,
+            num_replicas: Optional[int]=1,
+            rank: Optional[int]=0,
+            seed: int=0, 
+            drop_last: bool=True,
+            ):
+        self.each_data_sizes = dataset.each_data_sizes
+        self.batch_size = global_batch_size
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.epoch = 0
+        self.drop_last = drop_last
+        self.shuffle = shuffle
+        self.seed = seed
+        self.indices = self.set_indices()
+        self.num_samples = len(self.indices) // self.num_replicas
+
+    def set_indices(self):
+        g = torch.Generator()
+        g.manual_seed(self.seed + self.epoch)
+        if self.shuffle:
+            # deterministically shuffle based on epoch and seed
+            indices = [torch.randperm(n, generator=g).tolist() for n in self.each_data_sizes]
+        else:
+            indices = [list(range(n)) for n in self.each_data_sizes]
+
+        # increase the indices by the offset
+        for i in range(len(self.each_data_sizes)):
+            indices[i] = [idx + sum(self.each_data_sizes[:i]) for idx in indices[i]]
+        batched_indices = []
+        for data_indices in indices:
+            _batched_indices = list(torch.split(torch.tensor(data_indices), self.batch_size))
+            batched_indices.append(_batched_indices)
+        
+        # Create separate batches from the remaining samples
+        incomplete_indices = []
+        for b in batched_indices:
+            if len(b[-1]) < self.batch_size:
+                incomplete_indices.append(b.pop())
+        
+        if self.drop_last is False:
+            # Randomly permute the incomplete indices
+            order = torch.randperm(len(incomplete_indices), generator=g).tolist()
+            incomplete_indices = torch.cat([incomplete_indices[i] for i in order])
+            # Then split again into groups of four & drop the last one if it is incomplete
+            mixed_batches = list(torch.split(torch.tensor(incomplete_indices), self.batch_size))
+            if len(mixed_batches[-1]) < self.batch_size:
+                mixed_batches.pop()
+            batched_indices = sum(batched_indices, []) + mixed_batches
+        else:
+            batched_indices = sum(batched_indices, [])
+
+        if self.shuffle:
+            # Shuffle the batches 
+            order = torch.randperm(len(batched_indices), generator=g).tolist()
+        else:
+            order = list(range(len(batched_indices)))
+                         
+        indices = []
+        for batch_idx in order:
+            indices.extend([int(i) for i in batched_indices[batch_idx]])
+        return indices
+
+    def __iter__(self):
+        # subsample
+        indices = self.indices[self.rank:len(indices):self.num_replicas]
+        assert len(indices) == self.num_samples
+        return iter(indices)
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def set_epoch(self, epoch: int) -> None:
+        r"""
+        Set the epoch for this sampler.
+
+        When :attr:`shuffle=True`, this ensures all replicas
+        use a different random ordering for each epoch. Otherwise, the next iteration of this
+        sampler will yield the same ordering.
+
+        Args:
+            epoch (int): Epoch number.
+        """
+        self.epoch = epoch
 
 
 @dataclass

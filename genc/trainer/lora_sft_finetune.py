@@ -1,33 +1,24 @@
-from contextlib import nullcontext
 import dataclasses
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Union
 import numpy as np
 import torch
 import torch.distributed
 from torch.utils.data import DataLoader
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, StateDictType, FullStateDictConfig
 import lightning as L
-from lightning.fabric.utilities import ThroughputMonitor
 from torchmetrics import RunningMean
 from tqdm import tqdm
-from transformers import PreTrainedModel, PreTrainedTokenizerBase
+from transformers import PreTrainedModel
 from peft import PeftModel
 
-from genc.data.base import DataModule
 from genc.trainer.trainer_utils import (
     CycleIterator, 
-    get_batch_logps,
     split_input, 
-    dpo_loss, 
-    kl_loss,
-    null_ref_context,
 )
 from genc.trainer.gradcache import GradCache
-from genc.args import DataArguments, ModelArguments, TrainingArguments, ValidationArgument
+from genc.args import TrainingArguments, ValidationArgument
 from genc.utils import compute_metrics
 
 
@@ -139,20 +130,22 @@ def fit(
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     sft_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
     cons_running_loss = RunningMean(window=1, sync_on_compute=False).to(fabric.device)
-    throughput = ThroughputMonitor(fabric, window_size=50)
 
     fabric.print("Training data size:", len(train_dataloader))
+    refresh_sampler = False
     while iter_num < lr_max_steps:
         iter_num += 1
         if iter_num < checkpoint_iter_num:
             continue
-        iter_t0 = time.perf_counter()
 
-        # Log memory usage
-        if iter_num==0 and fabric.device==0:
-            reserved_before_forward = torch.cuda.memory_reserved(fabric.device)
-            fabric.log_dict({"memory/allocated_before_forward": torch.cuda.memory_allocated(fabric.device)})
-            fabric.log_dict({"memory/reserved_before_forward": reserved_before_forward})
+        if refresh_sampler:
+            if hasattr(train_dataloader.sampler, "set_epoch"):
+                train_dataloader.sampler.set_epoch(train_iterator.epoch)
+            refresh_sampler = False
+        if iter_num % steps_per_epoch == 0:
+            refresh_sampler = True
+
+        iter_t0 = time.perf_counter()
 
         batch = next(train_iterator)
 
@@ -245,12 +238,6 @@ def fit(
                 fabric.backward(loss)
 
             sft_running_loss.update(loss.detach())
-
-        # Log memory usage
-        if iter_num==0 and fabric.device==0:
-            reserved_after_forward = torch.cuda.memory_reserved(fabric.device)
-            fabric.log_dict({"memory/allocated_after_forward": torch.cuda.memory_allocated(fabric.device)})
-            fabric.log_dict({"memory/reserved_after_forward": reserved_after_forward})
         
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)

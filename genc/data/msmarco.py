@@ -97,7 +97,6 @@ class MSMARCODataset(DataModule):
     seed: int = 42
     num_workers: int = 4
     ignore_index: int = -100
-    mode: str = 'dpoc'
 
     tokenizer: Optional[PreTrainedTokenizerBase] = field(default=None, init=False, repr=False)
     batch_size: int = field(default=1, init=False, repr=False)
@@ -119,8 +118,8 @@ class MSMARCODataset(DataModule):
             global_rank: int = 0,
             tokenizer: PreTrainedTokenizerBase | None = None, 
             batch_size: int = 1, 
+            global_batch_size: int = 1,
             max_seq_length = 512,
-            mode: str = 'dpoc',
             num_negative_samples: int = 1,
             num_positive_samples: int = 1,
             prompt_loss_weight: float=0.02,
@@ -132,8 +131,7 @@ class MSMARCODataset(DataModule):
         self.num_negative_samples = num_negative_samples
         self.num_positive_samples = num_positive_samples
         self.prompt_loss_weight = prompt_loss_weight
-        self.max_seq_length = -1 if max_seq_length is None else max_seq_length
-        self.mode = mode
+        self.max_seq_length = 512 if max_seq_length is None else max_seq_length
     
     def prepare_data(self):
         pass
@@ -160,17 +158,14 @@ class MSMARCODataset(DataModule):
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
-        if self.mode == 'dpoc':
-            self.train_dataset = DPOCDataset(
-                data=train_ds,
-                tokenizer=self.tokenizer,
-                num_negative_samples=self.num_negative_samples,
-                num_positive_samples=self.num_positive_samples,
-                max_seq_length=self.max_seq_length,
-                prompt_loss_weight=self.prompt_loss_weight,
-            )
-        else:
-            raise ValueError(f"Mode {self.mode} not supported.")
+        self.train_dataset = DPOCDataset(
+            data=train_ds,
+            tokenizer=self.tokenizer,
+            num_negative_samples=self.num_negative_samples,
+            num_positive_samples=self.num_positive_samples,
+            max_seq_length=self.max_seq_length,
+            prompt_loss_weight=self.prompt_loss_weight,
+        )
         
         self.val_dataset = EmbDataset(
             data=val_ds,
@@ -179,17 +174,16 @@ class MSMARCODataset(DataModule):
         )
     
     def train_dataloader(self) -> DataLoader:
-        if self.mode == 'dpoc':
-            collator = DPOCCollator(tokenizer=self.tokenizer, label_pad_token_id=self.ignore_index)
-            if self.world_size > 1:
-                sampler = DistributedSampler(
-                    self.train_dataset, 
-                    seed=self.seed, 
-                    shuffle=True, 
-                    num_replicas=self.world_size,
-                    rank=self.global_rank,)
-            else:
-                sampler = None
+        collator = DPOCCollator(tokenizer=self.tokenizer, label_pad_token_id=self.ignore_index)
+        if self.world_size > 1:
+            sampler = DistributedSampler(
+                self.train_dataset, 
+                seed=self.seed, 
+                shuffle=True, 
+                num_replicas=self.world_size,
+                rank=self.global_rank,)
+        else:
+            sampler = None
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,

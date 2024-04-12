@@ -1,10 +1,7 @@
 from collections import UserDict
 import functools
 from itertools import repeat
-from contextlib import contextmanager, nullcontext
 from tqdm.auto import tqdm
-import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from typing_extensions import Self
@@ -250,13 +247,6 @@ def split_input(model_input, chunk_size: int) -> List:
 
     else:
         raise NotImplementedError(f'Model input split not implemented for type {type(model_input)}')
-
-@contextmanager
-def null_ref_context(model: Union[torch.nn.Module, PreTrainedModel, PeftModel], is_peft_model: bool, train_adapter_name: str="default"):
-    """Context manager for handling null reference model (that is, peft adapter manipulation)."""
-    with model.disable_adapter() if is_peft_model else nullcontext():
-        yield
-        model.set_adapter(train_adapter_name)
 
 def get_batch_logps(
     logits: torch.FloatTensor,
