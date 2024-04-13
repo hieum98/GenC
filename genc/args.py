@@ -14,6 +14,7 @@ class DataArguments:
         metadata={"help": "The name of the dataset."}
         )
     data_dir: str = field(
+        default=None,
         metadata={"help": "The input data dir. Should contain the .jsonl files for the task."}
         )
     train_file: str = field(

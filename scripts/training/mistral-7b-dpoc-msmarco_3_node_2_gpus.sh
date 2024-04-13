@@ -4,7 +4,7 @@
 #SBATCH --nodes=3               # This needs to match Fabric(num_nodes=...)
 #SBATCH --ntasks-per-node=2     # This needs to match Fabric(devices=...)
 #SBATCH --gres=gpu:2            # Request N GPUs per machine
-#SBATCH --mem=200G       # Request N GB per task
+#SBATCH --mem=200G       
 #SBATCH --constraint=gpu-80gb,no-mig
 #SBATCH --cpus-per-task=10
 #SBATCH --job-name=dpoc7b
