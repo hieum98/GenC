@@ -110,8 +110,10 @@ def main(
         temperature=model_args.temperature,
         quantization=model_args.quantization,
         use_lora=model_args.use_lora,
-        train_adapter_name=model_args.train_adapter_name,
-        lora_weights_name_or_path=model_args.lora_weights_name_or_path,
+        emb_adapter_name=model_args.emb_adapter_name,
+        gen_adapter_name=model_args.gen_adapter_name,
+        lora_weights_name_or_path_for_emb=model_args.lora_weights_name_or_path_for_emb,
+        lora_weights_name_or_path_for_gen=model_args.lora_weights_name_or_path_for_gen,
         lora_target_modules=["all"],
         lora_r=model_args.lora_r,
         lora_alpha=model_args.lora_alpha,
@@ -189,7 +191,7 @@ def main(
             fabric.load(optim_checkpoint_path, stage, strict=False)
 
     model = stage.pop("model")
-    if training_args.mode == 'efst':
+    if training_args.mode == 'esft':
         sft_fit(
             fabric=fabric,
             model=model,
@@ -344,7 +346,7 @@ if __name__=='__main__':
         "--devices", type=int, default=1, help="Number of devices"
     )
     parser.add_argument(
-        "--mode", type=str, default="efst", help="Training mode"
+        "--mode", type=str, default="esft", help="Training mode"
     )
     parser.add_argument(
         "--ref_model_name_or_path", type=str, default=None, help="Reference model name or path"

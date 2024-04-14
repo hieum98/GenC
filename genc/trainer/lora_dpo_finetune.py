@@ -20,9 +20,10 @@ from genc.trainer.trainer_utils import (
     split_input, 
     dpo_loss, 
     kl_loss,
+    online_hard_example_mining
 )
 from genc.trainer.gradcache import GradCache
-from genc.args import TrainingArguments, ValidationArgument
+from genc.args import ModelArguments, TrainingArguments, ValidationArgument
 from genc.utils import compute_metrics
 
 
@@ -83,118 +84,14 @@ def validate(
     return metrics
 
 
-def online_hard_example_mining(
-    reps: torch.Tensor,
-    query_input_ids: torch.Tensor,
-    query_attention_mask: torch.Tensor,
-    query_prompt_length: torch.Tensor,
-    pos_input_ids: torch.Tensor,
-    pos_attention_mask: torch.Tensor,
-    pos_prompt_length: torch.Tensor,
-    neg_input_ids: torch.Tensor,
-    neg_attention_mask: torch.Tensor,
-    neg_prompt_length: torch.Tensor,
-    choices_input_ids: torch.Tensor,
-    choices_attention_mask: torch.Tensor,
-    choices_labels: torch.Tensor,
-    choices_loss_weight_mask: torch.Tensor,
-    rejects_input_ids: torch.Tensor,
-    rejects_attention_mask: torch.Tensor,
-    rejects_labels: torch.Tensor,
-    rejects_loss_weight_mask: torch.Tensor,
-    training_args: TrainingArguments,
-    ):
-    bs = query_input_ids.size(0)
-    num_pos = pos_input_ids.size(1)
-    num_neg = neg_input_ids.size(1)
-
-    # Get the embeddings
-    query_embs = reps.clone().detach()[:bs]
-    pos_embs = reps.clone().detach()[bs:bs + bs * num_pos].view(bs, num_pos, -1)
-    neg_embs = reps.clone().detach()[bs + bs * num_pos:].view(bs, num_neg, -1)
-    # Pairwise cosine similarity
-    pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
-    neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
-    # Get topk similar negatives
-    _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg*2, dim=-1) # [bs, topk_neg]
-    # Get top1 dissimilar positives
-    _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
-    
-    hard_pos_input_ids = []
-    hard_pos_attention_mask = []
-    hard_pos_prompt_length = []
-    hard_neg_input_ids = []
-    hard_neg_attention_mask = []
-    hard_neg_prompt_length = []
-    hard_choices_input_ids = []
-    hard_choices_attention_mask = []
-    hard_choices_labels = []
-    hard_choices_loss_weight_mask = []
-    hard_rejects_input_ids = []
-    hard_rejects_attention_mask = []
-    hard_rejects_labels = []
-    hard_rejects_loss_weight_mask = []
-    for i in range(bs):
-        hard_pos_input_ids.append(pos_input_ids[i, top1_pos_sim_idx[i]]) # [1, max_length]
-        hard_pos_attention_mask.append(pos_attention_mask[i, top1_pos_sim_idx[i]])
-        hard_pos_prompt_length.append(pos_prompt_length[i, top1_pos_sim_idx[i]])
-        hard_neg_input_ids.append(neg_input_ids[i, topk_neg_sim_idx[i]]) # [topk_neg, max_length]
-        hard_neg_attention_mask.append(neg_attention_mask[i, topk_neg_sim_idx[i]])
-        hard_neg_prompt_length.append(neg_prompt_length[i, topk_neg_sim_idx[i]])
-        hard_choices_input_ids.append(choices_input_ids[i, top1_pos_sim_idx[i]]) # [1, max_length]
-        hard_choices_attention_mask.append(choices_attention_mask[i, top1_pos_sim_idx[i]])
-        hard_choices_labels.append(choices_labels[i, top1_pos_sim_idx[i]])
-        hard_choices_loss_weight_mask.append(choices_loss_weight_mask[i, top1_pos_sim_idx[i]])
-        hard_rejects_input_ids.append(rejects_input_ids[i, topk_neg_sim_idx[i]]) # [topk_neg, max_length]
-        hard_rejects_attention_mask.append(rejects_attention_mask[i, topk_neg_sim_idx[i]])
-        hard_rejects_labels.append(rejects_labels[i, topk_neg_sim_idx[i]])
-        hard_rejects_loss_weight_mask.append(rejects_loss_weight_mask[i, topk_neg_sim_idx[i]])
-    
-    hard_pos_input_ids = torch.stack(hard_pos_input_ids, dim=0) # [bs, 1, max_length]
-    hard_pos_attention_mask = torch.stack(hard_pos_attention_mask, dim=0)
-    hard_pos_prompt_length = torch.stack(hard_pos_prompt_length, dim=0)
-    hard_neg_input_ids = torch.stack(hard_neg_input_ids, dim=0) # [bs, topk_neg, max_length]
-    hard_neg_attention_mask = torch.stack(hard_neg_attention_mask, dim=0)
-    hard_neg_prompt_length = torch.stack(hard_neg_prompt_length, dim=0)
-    emb_model_inputs = {
-        "query_input_ids": query_input_ids,
-        "query_attention_mask": query_attention_mask,
-        "query_prompt_length": query_prompt_length,
-        "pos_input_ids": hard_pos_input_ids,
-        "pos_attention_mask": hard_pos_attention_mask,
-        "pos_prompt_length": hard_pos_prompt_length,
-        "neg_input_ids": hard_neg_input_ids,
-        "neg_attention_mask": hard_neg_attention_mask,
-        "neg_prompt_length": hard_neg_prompt_length,
-    }
-
-    hard_choices_input_ids = torch.stack(hard_choices_input_ids, dim=0) # [bs, 1, max_length]
-    hard_choices_attention_mask = torch.stack(hard_choices_attention_mask, dim=0)
-    hard_choices_labels = torch.stack(hard_choices_labels, dim=0)
-    hard_choices_loss_weight_mask = torch.stack(hard_choices_loss_weight_mask, dim=0)
-    hard_rejects_input_ids = torch.stack(hard_rejects_input_ids, dim=0) # [bs, topk_neg, max_length]
-    hard_rejects_attention_mask = torch.stack(hard_rejects_attention_mask, dim=0)
-    hard_rejects_labels = torch.stack(hard_rejects_labels, dim=0)
-    hard_rejects_loss_weight_mask = torch.stack(hard_rejects_loss_weight_mask, dim=0)
-    gen_model_inputs = {
-        "choices_input_ids": hard_choices_input_ids,
-        "choices_attention_mask": hard_choices_attention_mask,
-        "choices_labels": hard_choices_labels,
-        "choices_loss_weight_mask": hard_choices_loss_weight_mask,
-        "rejects_input_ids": hard_rejects_input_ids,
-        "rejects_attention_mask": hard_rejects_attention_mask,
-        "rejects_labels": hard_rejects_labels,
-        "rejects_loss_weight_mask": hard_rejects_loss_weight_mask,
-    }
-    return emb_model_inputs, gen_model_inputs
-
-
 def compute_kl_loss(
     model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
     ref_model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
     emb_input_chunk: Dict[str, torch.Tensor],
     gen_input_chunk: Dict[str, torch.Tensor],
     chunksize: int,
+    emb_adapter_name: str,
+    gen_adapter_name: str,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -219,6 +116,7 @@ def compute_kl_loss(
         "prompt_length": emb_prompt_length,
         "is_emb": True,
     }
+    model.set_adapter(emb_adapter_name)
     emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
     # Compute pair logits
     pair_input_ids = torch.cat([
@@ -242,9 +140,11 @@ def compute_kl_loss(
         "attention_mask": pair_attention_mask,
         "is_gen": True,
     }
+    model.set_adapter(gen_adapter_name)
     with torch.no_grad():
         pair_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
         ref_pair_logits = ref_model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+    model.set_adapter(emb_adapter_name)
     gen_logps = get_batch_logps(
         logits=pair_logits,
         labels=pair_labels,
@@ -339,9 +239,11 @@ def fit(
     stage: Dict[str, Any],
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
+    model_args: ModelArguments,
     training_args: TrainingArguments,
     validation_args: ValidationArgument
 ):  
+    model.set_adapter(model_args.emb_adapter_name)
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
     fabric.print(f"Validation metric: {val_metric}")
     fabric.barrier()
@@ -436,6 +338,7 @@ def fit(
         other_kwargs = {
             "is_emb": True,
         }
+        model.set_adapter(model_args.emb_adapter_name)
         if training_args.use_gc:
             no_sync_except_last = torch.distributed.is_initialized()
             inputs = (model_inputs, other_kwargs)
@@ -491,14 +394,20 @@ def fit(
             inner_iter_num += 1
             is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
             with fabric.no_backward_sync(model, enabled=is_accumulating):
+                model.set_adapter(model_args.emb_adapter_name)
                 loss_kl = compute_kl_loss(
                     model=model,
                     ref_model=ref_model,
                     emb_input_chunk=emb_input_chunk,
                     gen_input_chunk=gen_input_chunk,
                     chunksize=chunksize,
+                    emb_adapter_name=model_args.emb_adapter_name,
+                    gen_adapter_name=model_args.gen_adapter_name,
                 )
+                fabric.backward(loss_kl/gradient_accumulation_iters)
+
                 # DPO loss
+                model.set_adapter(model_args.gen_adapter_name)
                 dpo_losses = compute_dpo_loss(
                     model=model,
                     ref_model=ref_model,
@@ -506,10 +415,7 @@ def fit(
                     chunksize=chunksize,
                     training_args=training_args,
                 )
-                # Scale loss for gradient accumulation
-                loss = loss_kl + dpo_losses
-                loss = loss / gradient_accumulation_iters
-                fabric.backward(loss)
+                fabric.backward(dpo_losses/gradient_accumulation_iters)
 
             kl_running_loss.update(loss_kl.detach())
             dpo_running_loss.update(dpo_losses.detach())
@@ -541,7 +447,7 @@ def fit(
             fabric.log_dict(metrics, step=iter_num)
             fabric.print(
             f"Epoch {metrics['epoch']+1} | iter {metrics['iter']} |"
-            f" loss train: {metrics['cons_loss']:.3f},"
+            f" cons loss: {metrics['cons_loss']:.3f},"
             f" kl loss: {_kl_loss:.3f},"
             f" dpo loss: {_dpo_loss:.3f},"
             # f" val: {val_metric} |"

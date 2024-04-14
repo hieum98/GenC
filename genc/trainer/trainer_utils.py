@@ -248,6 +248,7 @@ def split_input(model_input, chunk_size: int) -> List:
     else:
         raise NotImplementedError(f'Model input split not implemented for type {type(model_input)}')
 
+
 def get_batch_logps(
     logits: torch.FloatTensor,
     labels: torch.LongTensor,
@@ -270,6 +271,112 @@ def get_batch_logps(
         return (per_token_logps * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1) # (batch_size,)
     else:
         return (per_token_logps * loss_weight_mask).sum(-1) # (batch_size,)
+
+
+def online_hard_example_mining(
+    reps: torch.Tensor,
+    query_input_ids: torch.Tensor,
+    query_attention_mask: torch.Tensor,
+    query_prompt_length: torch.Tensor,
+    pos_input_ids: torch.Tensor,
+    pos_attention_mask: torch.Tensor,
+    pos_prompt_length: torch.Tensor,
+    neg_input_ids: torch.Tensor,
+    neg_attention_mask: torch.Tensor,
+    neg_prompt_length: torch.Tensor,
+    choices_input_ids: torch.Tensor,
+    choices_attention_mask: torch.Tensor,
+    choices_labels: torch.Tensor,
+    choices_loss_weight_mask: torch.Tensor,
+    rejects_input_ids: torch.Tensor,
+    rejects_attention_mask: torch.Tensor,
+    rejects_labels: torch.Tensor,
+    rejects_loss_weight_mask: torch.Tensor,
+    training_args: TrainingArguments,
+    ):
+    bs = query_input_ids.size(0)
+    num_pos = pos_input_ids.size(1)
+    num_neg = neg_input_ids.size(1)
+
+    # Get the embeddings
+    query_embs = reps.clone().detach()[:bs]
+    pos_embs = reps.clone().detach()[bs:bs + bs * num_pos].view(bs, num_pos, -1)
+    neg_embs = reps.clone().detach()[bs + bs * num_pos:].view(bs, num_neg, -1)
+    # Pairwise cosine similarity
+    pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
+    neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
+    # Get topk similar negatives
+    _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg*2, dim=-1) # [bs, topk_neg]
+    # Get top1 dissimilar positives
+    _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
+    
+    hard_pos_input_ids = []
+    hard_pos_attention_mask = []
+    hard_pos_prompt_length = []
+    hard_neg_input_ids = []
+    hard_neg_attention_mask = []
+    hard_neg_prompt_length = []
+    hard_choices_input_ids = []
+    hard_choices_attention_mask = []
+    hard_choices_labels = []
+    hard_choices_loss_weight_mask = []
+    hard_rejects_input_ids = []
+    hard_rejects_attention_mask = []
+    hard_rejects_labels = []
+    hard_rejects_loss_weight_mask = []
+    for i in range(bs):
+        hard_pos_input_ids.append(pos_input_ids[i, top1_pos_sim_idx[i]]) # [1, max_length]
+        hard_pos_attention_mask.append(pos_attention_mask[i, top1_pos_sim_idx[i]])
+        hard_pos_prompt_length.append(pos_prompt_length[i, top1_pos_sim_idx[i]])
+        hard_neg_input_ids.append(neg_input_ids[i, topk_neg_sim_idx[i]]) # [topk_neg, max_length]
+        hard_neg_attention_mask.append(neg_attention_mask[i, topk_neg_sim_idx[i]])
+        hard_neg_prompt_length.append(neg_prompt_length[i, topk_neg_sim_idx[i]])
+        hard_choices_input_ids.append(choices_input_ids[i, top1_pos_sim_idx[i]]) # [1, max_length]
+        hard_choices_attention_mask.append(choices_attention_mask[i, top1_pos_sim_idx[i]])
+        hard_choices_labels.append(choices_labels[i, top1_pos_sim_idx[i]])
+        hard_choices_loss_weight_mask.append(choices_loss_weight_mask[i, top1_pos_sim_idx[i]])
+        hard_rejects_input_ids.append(rejects_input_ids[i, topk_neg_sim_idx[i]]) # [topk_neg, max_length]
+        hard_rejects_attention_mask.append(rejects_attention_mask[i, topk_neg_sim_idx[i]])
+        hard_rejects_labels.append(rejects_labels[i, topk_neg_sim_idx[i]])
+        hard_rejects_loss_weight_mask.append(rejects_loss_weight_mask[i, topk_neg_sim_idx[i]])
+    
+    hard_pos_input_ids = torch.stack(hard_pos_input_ids, dim=0) # [bs, 1, max_length]
+    hard_pos_attention_mask = torch.stack(hard_pos_attention_mask, dim=0)
+    hard_pos_prompt_length = torch.stack(hard_pos_prompt_length, dim=0)
+    hard_neg_input_ids = torch.stack(hard_neg_input_ids, dim=0) # [bs, topk_neg, max_length]
+    hard_neg_attention_mask = torch.stack(hard_neg_attention_mask, dim=0)
+    hard_neg_prompt_length = torch.stack(hard_neg_prompt_length, dim=0)
+    emb_model_inputs = {
+        "query_input_ids": query_input_ids,
+        "query_attention_mask": query_attention_mask,
+        "query_prompt_length": query_prompt_length,
+        "pos_input_ids": hard_pos_input_ids,
+        "pos_attention_mask": hard_pos_attention_mask,
+        "pos_prompt_length": hard_pos_prompt_length,
+        "neg_input_ids": hard_neg_input_ids,
+        "neg_attention_mask": hard_neg_attention_mask,
+        "neg_prompt_length": hard_neg_prompt_length,
+    }
+
+    hard_choices_input_ids = torch.stack(hard_choices_input_ids, dim=0) # [bs, 1, max_length]
+    hard_choices_attention_mask = torch.stack(hard_choices_attention_mask, dim=0)
+    hard_choices_labels = torch.stack(hard_choices_labels, dim=0)
+    hard_choices_loss_weight_mask = torch.stack(hard_choices_loss_weight_mask, dim=0)
+    hard_rejects_input_ids = torch.stack(hard_rejects_input_ids, dim=0) # [bs, topk_neg, max_length]
+    hard_rejects_attention_mask = torch.stack(hard_rejects_attention_mask, dim=0)
+    hard_rejects_labels = torch.stack(hard_rejects_labels, dim=0)
+    hard_rejects_loss_weight_mask = torch.stack(hard_rejects_loss_weight_mask, dim=0)
+    gen_model_inputs = {
+        "choices_input_ids": hard_choices_input_ids,
+        "choices_attention_mask": hard_choices_attention_mask,
+        "choices_labels": hard_choices_labels,
+        "choices_loss_weight_mask": hard_choices_loss_weight_mask,
+        "rejects_input_ids": hard_rejects_input_ids,
+        "rejects_attention_mask": hard_rejects_attention_mask,
+        "rejects_labels": hard_rejects_labels,
+        "rejects_loss_weight_mask": hard_rejects_loss_weight_mask,
+    }
+    return emb_model_inputs, gen_model_inputs
 
 
 def dpo_loss(
