@@ -966,7 +966,6 @@ if __name__ == '__main__':
             output_folder=output_folder,
             eval_splits=eval_splits,
             batch_size=args.batch_size,
-            save_qrels=args.save_qrels,
             top_k=args.top_k,
             overwrite_results=args.overwrite_results,
         )

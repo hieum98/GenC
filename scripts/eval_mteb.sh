@@ -2,11 +2,11 @@
 #SBATCH --job-name=mteb
 #SBATCH --account=uonlp
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1          # crucial - only 1 task per dist per node!
-#SBATCH --mem=200G
+#SBATCH --ntasks-per-node=1          
+#SBATCH --mem=100G
 #SBATCH --constraint=gpu-80gb,no-mig
-#SBATCH --partition=gpulong
-#SBATCH --gres=gpu:2                 # number of gpus
+#SBATCH --partition=preempt
+#SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=20
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mistral-7b-dpoc-msmarco-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mistral-7b-dpoc-msmarco-%j.err
@@ -116,17 +116,18 @@ STS12
 SummEval
 )
 
-DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+# For each dataset in ALLDS run the evaluation script
+for DS in ${ALLDS[@]}; do
+    echo "Running $DS"
+    python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/7b-esft_msmarco-50 \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set medi2 \
+    --instruction_format genclm \
+    --batch_size 64 \
+    --pipeline_parallel \
+    --pooling_method mean
+done
 
-echo "Running $DS"
-
-python evaluation/eval_mteb.py \
---model_name_or_path checkpoint/7b-esft_msmarco-50 \
---attn_implementation sdpa \
---use_bidirectional \
---task_names $DS \
---instruction_set medi2 \
---instruction_format genclm \
---batch_size 64 \
---pipeline_parallel \
---pooling_method mean

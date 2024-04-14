@@ -118,7 +118,7 @@ class GenCLM(torch.nn.Module):
                 "attention_mask": inputs["attention_mask"].to(self.device),
                 "prompt_length": inputs["prompt_length"],
             }
-            embeddings = self.model(**inputs) # (batch_size, hidden_size)
+            embeddings = self.model.encode(**inputs) # (batch_size, hidden_size)
             all_embeddings.append(embeddings.cpu().to(torch.float32).numpy())
         
         all_embeddings = np.concatenate(all_embeddings, axis=0)
