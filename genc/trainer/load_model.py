@@ -37,8 +37,10 @@ def load_model(
         temperature: float = 0.05,
         quantization: bool = False,
         use_lora: bool = False,
-        train_adapter_name: Optional[str] = "default",
-        lora_weights_name_or_path: Optional[str] = None,
+        emb_adapter_name: Optional[str] = "emb",
+        gen_adapter_name: Optional[str] = "gen",
+        lora_weights_name_or_path_for_emb: Optional[str] = None,
+        lora_weights_name_or_path_for_gen: Optional[str] = None,
         lora_target_modules: Optional[List[str]] = None,
         lora_r: Optional[int] = 8,
         lora_alpha: Optional[int] = 16,
@@ -52,7 +54,7 @@ def load_model(
         local_rank: int = 0,
         gradient_checkpointing: bool = False,
         **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
-    if lora_weights_name_or_path is not None and not use_lora:
+    if (lora_weights_name_or_path_for_emb is not None or lora_weights_name_or_path_for_gen is not None) and not use_lora:
         logger.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
 
     # Load tokenizer
@@ -178,27 +180,35 @@ def load_model(
         # from happening by replacing quant_state.to with a dummy function
         if rank!=0 and low_memory:
             setup_quantized_meta_for_peft(model)
-            
-        if lora_weights_name_or_path is None:
-            logger.info("No LoRA weights provided, we will use the default random LoRA weights.")
-            if lora_target_modules == ["all"]:
-                logger.warning(
-                    "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
-                )
-                lora_target_modules = ["k_proj", "q_proj", "v_proj", "up_proj", "down_proj", "gate_proj"]
-            lora_config = LoraConfig(
-                r=lora_r,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
-                bias="none",
-                task_type=TaskType.CAUSAL_LM,
-                target_modules=lora_target_modules,
-                inference_mode=inference,
+
+        if lora_target_modules == ["all"]:
+            logger.warning(
+                "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
             )
-            model: PeftModel = get_peft_model(model, lora_config, adapter_name=train_adapter_name)
+            lora_target_modules = "all-linear"
+        lora_config = LoraConfig(
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+            target_modules=lora_target_modules,
+            inference_mode=inference,
+        )
+            
+        if lora_weights_name_or_path_for_emb is None:
+            logger.info("No LoRA weights provided for embedding model, we will use the default random LoRA weights.")
+            model: PeftModel = get_peft_model(model, lora_config, adapter_name=emb_adapter_name)
         else:
-            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
-            model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path, adapter_name=train_adapter_name, is_trainable=True)
+            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_emb}")
+            model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path_for_emb, adapter_name=emb_adapter_name, is_trainable=True)
+        
+        if lora_weights_name_or_path_for_gen is None:
+            logger.info("No LoRA weights provided for generation model, we will use the default random LoRA weights.")
+            model.add_adapter(gen_adapter_name, lora_config)
+        else:
+            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_gen}")
+            model.load_adapter(lora_weights_name_or_path_for_gen, adapter_name=gen_adapter_name, is_trainable=True)
 
         if rank==0:
             model.print_trainable_parameters()

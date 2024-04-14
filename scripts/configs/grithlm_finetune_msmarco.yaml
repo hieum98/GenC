@@ -25,6 +25,8 @@ quantization: False
 # Training args
 seed: 1234
 precision: bf16-true
+gen_loss_weight: 1.0
+kl_loss_weight: 0.5
 
 # FSDP args
 strategy: fsdp

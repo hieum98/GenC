@@ -16,9 +16,11 @@ from peft import PeftModel
 from genc.trainer.trainer_utils import (
     CycleIterator, 
     split_input, 
+    kl_loss,
+    online_hard_example_mining
 )
 from genc.trainer.gradcache import GradCache
-from genc.args import TrainingArguments, ValidationArgument
+from genc.args import ModelArguments, TrainingArguments, ValidationArgument
 from genc.utils import compute_metrics
 
 
@@ -79,15 +81,86 @@ def validate(
     return metrics
 
 
+def compute_kl_loss(
+    model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
+    emb_input_chunk: Dict[str, torch.Tensor],
+    gen_input_chunk: Dict[str, torch.Tensor],
+    chunksize: int,
+    emb_adapter_name: str,
+    gen_adapter_name: str,
+    ):
+    # KL loss
+    # Compute the embeddings for the query, positive and negative samples
+    emb_input_ids = torch.cat([
+        emb_input_chunk["query_input_ids"], # [chunksize, max_length]
+        emb_input_chunk["pos_input_ids"].view(-1, emb_input_chunk["pos_input_ids"].size(-1)), # [chunksize * 1, max_length]
+        emb_input_chunk["neg_input_ids"].view(-1, emb_input_chunk["neg_input_ids"].size(-1)), # [chunksize * topk_neg, max_length]
+    ], dim=0) # [chunksize * (1 + 1 + topk_neg), max_length]
+    emb_attention_mask = torch.cat([
+        emb_input_chunk["query_attention_mask"], 
+        emb_input_chunk["pos_attention_mask"].view(-1, emb_input_chunk["pos_attention_mask"].size(-1)),
+        emb_input_chunk["neg_attention_mask"].view(-1, emb_input_chunk["neg_attention_mask"].size(-1)),
+    ], dim=0)
+    emb_prompt_length = torch.cat([
+        emb_input_chunk["query_prompt_length"], # [chunksize]
+        emb_input_chunk["pos_prompt_length"].flatten(), # [chunksize * 1]
+        emb_input_chunk["neg_prompt_length"].flatten(), # [chunksize * topk_neg]
+    ], dim=0) # [chunksize * (1 + 1 + topk_neg)]
+    emb_inputs = {
+        "input_ids": emb_input_ids,
+        "attention_mask": emb_attention_mask,
+        "prompt_length": emb_prompt_length,
+        "is_emb": True,
+    }
+    model.set_adapter(emb_adapter_name)
+    emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
+    # Compute pair logits
+    pair_input_ids = torch.cat([
+        gen_input_chunk["choices_input_ids"].view(-1, gen_input_chunk["choices_input_ids"].size(-1)), # [chunksize, max_length]
+        gen_input_chunk["rejects_input_ids"].view(-1, gen_input_chunk["rejects_input_ids"].size(-1)), # [chunksize * topk_neg, max_length]
+    ], dim=0)
+    pair_attention_mask = torch.cat([
+        gen_input_chunk["choices_attention_mask"].view(-1, gen_input_chunk["choices_attention_mask"].size(-1)),
+        gen_input_chunk["rejects_attention_mask"].view(-1, gen_input_chunk["rejects_attention_mask"].size(-1)),
+    ], dim=0)
+    pair_labels = torch.cat([
+        gen_input_chunk["choices_labels"].view(-1, gen_input_chunk["choices_labels"].size(-1)),
+        gen_input_chunk["rejects_labels"].view(-1, gen_input_chunk["rejects_labels"].size(-1)),
+    ], dim=0)
+    pair_loss_weight_mask = torch.cat([
+        gen_input_chunk["choices_loss_weight_mask"].view(-1, gen_input_chunk["choices_loss_weight_mask"].size(-1)),
+        gen_input_chunk["rejects_loss_weight_mask"].view(-1, gen_input_chunk["rejects_loss_weight_mask"].size(-1)),
+    ], dim=0)
+    pair_inputs = {
+        "input_ids": pair_input_ids,
+        "attention_mask": pair_attention_mask,
+        "is_gen": True,
+    }
+    model.set_adapter(gen_adapter_name)
+    with torch.no_grad():
+        gen_score = model(**pair_inputs)['loss'] # [chunksize * (1 + topk_neg)]
+    model.set_adapter(emb_adapter_name)
+    gen_score = - gen_score.view(chunksize, -1) # [chunksize, 1 + topk_neg]
+    gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
+
+    # KL loss
+    loss_kl = kl_loss(emb_reps, gen_score, bs=chunksize)
+    return loss_kl
+
+
 def fit(
     fabric: L.Fabric,
     model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
     stage: Dict[str, Any],
     train_dataloader: DataLoader,
     val_dataloader: DataLoader,
+    model_args: ModelArguments,
     training_args: TrainingArguments,
     validation_args: ValidationArgument
 ):  
+    # Active embedding tasks adapter
+    model.set_adapter(model_args.emb_adapter_name)
+
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
     fabric.print(f"Validation metric: {val_metric}")
     fabric.barrier()
@@ -129,6 +202,7 @@ def fit(
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     sft_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
+    kl_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
     cons_running_loss = RunningMean(window=1, sync_on_compute=False).to(fabric.device)
 
     fabric.print("Training data size:", len(train_dataloader))
@@ -169,6 +243,11 @@ def fit(
         choices_labels = batch["choices_labels"]
         choices_loss_weight_mask = batch["choices_loss_weight_mask"]
 
+        rejects_input_ids = batch["rejects_input_ids"] # [batch_size, num_neg, max_length]
+        rejects_attention_mask = batch["rejects_attention_mask"]
+        rejects_labels = batch["rejects_labels"]
+        rejects_loss_weight_mask = batch["rejects_loss_weight_mask"]
+
         # Forward-backward pass for contrastive loss
         bs = query_input_ids.size(0)
         num_pos = pos_input_ids.size(1)
@@ -186,6 +265,8 @@ def fit(
         other_kwargs = {
             "is_emb": True,
         }
+
+        model.set_adapter(model_args.emb_adapter_name)
         if training_args.use_gc:
             no_sync_except_last = torch.distributed.is_initialized()
             inputs = (model_inputs, other_kwargs)
@@ -222,6 +303,7 @@ def fit(
         assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
         inner_iter_num = 0
+        model.set_adapter(model_args.gen_adapter_name)
         for gen_input_chunk in split_input(gen_model_inputs, chunksize):
             inner_iter_num += 1
             is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
@@ -234,10 +316,53 @@ def fit(
                     "loss_weight_mask": gen_input_chunk["loss_weight_mask"],
                     "is_gen": True,
                 }
-                loss = model(**chunk_inputs)['loss']
-                fabric.backward(loss)
+                sft_loss = model(**chunk_inputs)['loss']
+                fabric.backward(sft_loss)
+            sft_running_loss.update(sft_loss.detach())
+        
+        # Forward-backward pass for KL loss
+        emb_model_inputs, gen_model_inputs = online_hard_example_mining(
+            reps=reps,
+            query_input_ids=query_input_ids,
+            query_attention_mask=query_attention_mask,
+            query_prompt_length=query_prompt_length,
+            pos_input_ids=pos_input_ids,
+            pos_attention_mask=pos_attention_mask,
+            pos_prompt_length=pos_prompt_length,
+            neg_input_ids=neg_input_ids,
+            neg_attention_mask=neg_attention_mask,
+            neg_prompt_length=neg_prompt_length,
+            choices_input_ids=choices_input_ids,
+            choices_attention_mask=choices_attention_mask,
+            choices_labels=choices_labels,
+            choices_loss_weight_mask=choices_loss_weight_mask,
+            rejects_input_ids=rejects_input_ids,
+            rejects_attention_mask=rejects_attention_mask,
+            rejects_labels=rejects_labels,
+            rejects_loss_weight_mask=rejects_loss_weight_mask,
+            training_args=training_args,
+        )
+        chunksize = training_args.mini_batch_size
+        gradient_accumulation_iters = bs // chunksize
+        assert bs % chunksize == 0, "Batch size must be divisible by chunksize"
+        assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
-            sft_running_loss.update(loss.detach())
+        inner_iter_num = 0
+        for emb_input_chunk, gen_input_chunk in zip(split_input(emb_model_inputs, chunksize), split_input(gen_model_inputs, chunksize)):
+            inner_iter_num += 1
+            is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
+            with fabric.no_backward_sync(model, enabled=is_accumulating):
+                model.set_adapter(model_args.emb_adapter_name)
+                loss_kl = compute_kl_loss(
+                    model=model,
+                    emb_input_chunk=emb_input_chunk,
+                    gen_input_chunk=gen_input_chunk,
+                    chunksize=chunksize,
+                    emb_adapter_name=model_args.emb_adapter_name,
+                    gen_adapter_name=model_args.gen_adapter_name,
+                )
+                fabric.backward(loss_kl/gradient_accumulation_iters)
+            kl_running_loss.update(loss_kl.detach())
         
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
@@ -250,10 +375,12 @@ def fit(
         if iter_num % training_args.log_interval == 0:
             _cons_loss = cons_running_loss.compute().item()
             _sft_loss = sft_running_loss.compute().item()
+            _kl_loss = kl_running_loss.compute().item()
             t1 = time.perf_counter()
 
             metrics = {
                 "cons_loss": _cons_loss,
+                "kl_loss": _kl_loss,
                 "sft_loss": _sft_loss,
                 "iter": iter_num,
                 "epoch": train_iterator.epoch,
@@ -264,7 +391,8 @@ def fit(
             fabric.log_dict(metrics, step=iter_num)
             fabric.print(
             f"Epoch {metrics['epoch']+1} | iter {metrics['iter']} |"
-            f" loss train: {metrics['cons_loss']:.3f},"
+            f" cons loss: {metrics['cons_loss']:.3f},"
+            f" kl loss: {metrics['kl_loss']:.3f},"
             f" sft loss: {_sft_loss:.3f},"
             # f" val: {val_metric} |"
             f" lr: {metrics['learning_rate']:.2e} |"

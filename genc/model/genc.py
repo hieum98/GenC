@@ -9,6 +9,7 @@ from transformers import (AutoConfig,
 from transformers.utils import ModelOutput
 from transformers.integrations import is_deepspeed_zero3_enabled, deepspeed_config
 from pytorch_metric_learning import losses, miners, distances
+from pytorch_metric_learning.utils import distributed as pml_dist
 
 from genc.model.modules import NextTokenLoss
 
@@ -49,6 +50,10 @@ class MistralEmbeddingLM(MistralForCausalLM):
             distance=distances.CosineSimilarity()
         )
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
+
+        if torch.distributed.is_initialized():
+            self.loss = pml_dist.DistributedLossWrapper(self.loss)
+            self.miner = pml_dist.DistributedMinerWrapper(self.miner)
 
         # Generation loss
         vocab_size = new_vocab_size if new_vocab_size is not None else config.vocab_size
