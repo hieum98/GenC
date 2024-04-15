@@ -292,7 +292,7 @@ def online_hard_example_mining(
     rejects_attention_mask: torch.Tensor,
     rejects_labels: torch.Tensor,
     rejects_loss_weight_mask: torch.Tensor,
-    training_args: TrainingArguments,
+    topk_neg: int,
     ):
     bs = query_input_ids.size(0)
     num_pos = pos_input_ids.size(1)
@@ -306,7 +306,9 @@ def online_hard_example_mining(
     pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
     neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
     # Get topk similar negatives
-    _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg*2, dim=-1) # [bs, topk_neg]
+    # TODO: Double check this logic
+    # _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg*2, dim=-1) # [bs, topk_neg]
+    _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg, dim=-1) # [bs, topk_neg]
     # Get top1 dissimilar positives
     _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
     

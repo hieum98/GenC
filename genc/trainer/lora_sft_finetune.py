@@ -317,6 +317,7 @@ def fit(
                     "is_gen": True,
                 }
                 sft_loss = model(**chunk_inputs)['loss']
+                sft_loss = sft_loss * training_args.gen_loss_weight
                 fabric.backward(sft_loss)
             sft_running_loss.update(sft_loss.detach())
         
@@ -340,7 +341,7 @@ def fit(
             rejects_attention_mask=rejects_attention_mask,
             rejects_labels=rejects_labels,
             rejects_loss_weight_mask=rejects_loss_weight_mask,
-            training_args=training_args,
+            topk_neg=training_args.topk_neg,
         )
         chunksize = training_args.mini_batch_size
         gradient_accumulation_iters = bs // chunksize
@@ -361,6 +362,7 @@ def fit(
                     emb_adapter_name=model_args.emb_adapter_name,
                     gen_adapter_name=model_args.gen_adapter_name,
                 )
+                loss_kl = loss_kl * training_args.kl_loss_weight
                 fabric.backward(loss_kl/gradient_accumulation_iters)
             kl_running_loss.update(loss_kl.detach())
         

@@ -381,7 +381,7 @@ def fit(
             rejects_attention_mask=rejects_attention_mask,
             rejects_labels=rejects_labels,
             rejects_loss_weight_mask=rejects_loss_weight_mask,
-            training_args=training_args,
+            topk_neg=training_args.topk_neg,
         )
 
         chunksize = training_args.mini_batch_size
