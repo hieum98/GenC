@@ -14,9 +14,9 @@ from transformers import PreTrainedModel
 from peft import PeftModel
 
 from genc.trainer.trainer_utils import (
-    CycleIterator, 
+    CycleIterator,
+    get_batch_logps, 
     split_input, 
-    kl_loss,
     online_hard_example_mining
 )
 from genc.trainer.gradcache import GradCache
@@ -86,8 +86,6 @@ def compute_kl_loss(
     emb_input_chunk: Dict[str, torch.Tensor],
     gen_input_chunk: Dict[str, torch.Tensor],
     chunksize: int,
-    emb_adapter_name: str,
-    gen_adapter_name: str,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -112,7 +110,6 @@ def compute_kl_loss(
         "prompt_length": emb_prompt_length,
         "is_emb": True,
     }
-    model.set_adapter(emb_adapter_name)
     emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
     # Compute pair logits
     pair_input_ids = torch.cat([
@@ -136,16 +133,26 @@ def compute_kl_loss(
         "attention_mask": pair_attention_mask,
         "is_gen": True,
     }
-    model.set_adapter(gen_adapter_name)
     with torch.no_grad():
-        gen_score = model(**pair_inputs)['loss'] # [chunksize * (1 + topk_neg)]
-    model.set_adapter(emb_adapter_name)
-    gen_score = - gen_score.view(chunksize, -1) # [chunksize, 1 + topk_neg]
-    gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
+        gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg)]
+        gen_logps = get_batch_logps(
+            logits=gen_logits,
+            labels=pair_labels,
+            loss_weight_mask=pair_loss_weight_mask,
+            average_log_prob=True
+        ) # [chunksize * (1 + topk_neg)]
+        gen_logps = gen_logps.view(chunksize, -1)
+        gen_score = torch.softmax(gen_logps, dim=-1) # [chunksize, 1 + topk_neg]
 
-    # KL loss
-    loss_kl = kl_loss(emb_reps, gen_score, bs=chunksize)
-    return loss_kl
+    query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
+    passage_reps = emb_reps[chunksize:].reshape(chunksize, -1, emb_reps.size(-1)) # [chunksize, 1 + topk_neg, emb_dim]
+    dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
+    dual_score = torch.log_softmax(dual_score, dim=1) # [chunksize, 1 + topk_neg]    
+    
+    kl = torch.nn.KLDivLoss(reduction="mean", log_target=True)
+    kl_loss = kl(dual_score, gen_score)
+
+    return kl_loss
 
 
 def fit(
@@ -159,7 +166,6 @@ def fit(
     validation_args: ValidationArgument
 ):  
     # Active embedding tasks adapter
-    model.set_adapter(model_args.emb_adapter_name)
 
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
     fabric.print(f"Validation metric: {val_metric}")
@@ -266,7 +272,6 @@ def fit(
             "is_emb": True,
         }
 
-        model.set_adapter(model_args.emb_adapter_name)
         if training_args.use_gc:
             no_sync_except_last = torch.distributed.is_initialized()
             inputs = (model_inputs, other_kwargs)
@@ -303,7 +308,6 @@ def fit(
         assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
         inner_iter_num = 0
-        model.set_adapter(model_args.gen_adapter_name)
         for gen_input_chunk in split_input(gen_model_inputs, chunksize):
             inner_iter_num += 1
             is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
@@ -353,14 +357,11 @@ def fit(
             inner_iter_num += 1
             is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
             with fabric.no_backward_sync(model, enabled=is_accumulating):
-                model.set_adapter(model_args.emb_adapter_name)
                 loss_kl = compute_kl_loss(
                     model=model,
                     emb_input_chunk=emb_input_chunk,
                     gen_input_chunk=gen_input_chunk,
                     chunksize=chunksize,
-                    emb_adapter_name=model_args.emb_adapter_name,
-                    gen_adapter_name=model_args.gen_adapter_name,
                 )
                 loss_kl = loss_kl * training_args.kl_loss_weight
                 fabric.backward(loss_kl/gradient_accumulation_iters)

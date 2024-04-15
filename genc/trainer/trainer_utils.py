@@ -465,21 +465,6 @@ def dpo_loss(
         return losses, chosen_rewards, rejected_rewards
 
 
-def kl_loss(
-        emb_reps: torch.FloatTensor,
-        gen_scores: torch.FloatTensor,
-        bs: int,
-        ):
-    query_reps = emb_reps[:bs] # [bs, emb_dim]
-    passage_reps = emb_reps[bs:].reshape(bs, -1, emb_reps.size(-1)) # [bs, 1 + topk_neg, emb_dim]
-    dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
-    dual_score = torch.log_softmax(dual_score, dim=1) # [bs, 1 + topk_neg]    
-    # KL loss
-    kl = torch.nn.KLDivLoss(reduction="mean", log_target=True)
-    kl_loss = kl(dual_score, gen_scores)
-    return kl_loss
-
-
 class CycleIterator:
     """An iterator that cycles through an iterable indefinitely.
 

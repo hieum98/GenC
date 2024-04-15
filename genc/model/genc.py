@@ -52,7 +52,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
 
         if torch.distributed.is_initialized():
-            self.loss = pml_dist.DistributedLossWrapper(self.loss)
+            self.cons_loss = pml_dist.DistributedLossWrapper(self.cons_loss)
             self.miner = pml_dist.DistributedMinerWrapper(self.miner)
 
         # Generation loss

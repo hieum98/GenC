@@ -37,10 +37,8 @@ def load_model(
         temperature: float = 0.05,
         quantization: bool = False,
         use_lora: bool = False,
-        emb_adapter_name: Optional[str] = "emb",
-        gen_adapter_name: Optional[str] = "gen",
-        lora_weights_name_or_path_for_emb: Optional[str] = None,
-        lora_weights_name_or_path_for_gen: Optional[str] = None,
+        adapter_name: Optional[str] = "emb",
+        lora_weights_name_or_path: Optional[str] = None,
         lora_target_modules: Optional[List[str]] = None,
         lora_r: Optional[int] = 8,
         lora_alpha: Optional[int] = 16,
@@ -54,7 +52,7 @@ def load_model(
         local_rank: int = 0,
         gradient_checkpointing: bool = False,
         **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
-    if (lora_weights_name_or_path_for_emb is not None or lora_weights_name_or_path_for_gen is not None) and not use_lora:
+    if lora_weights_name_or_path is not None and not use_lora:
         logger.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
 
     # Load tokenizer
@@ -196,20 +194,12 @@ def load_model(
             inference_mode=inference,
         )
             
-        if lora_weights_name_or_path_for_emb is None:
-            logger.info("No LoRA weights provided for embedding model, we will use the default random LoRA weights.")
-            model: PeftModel = get_peft_model(model, lora_config, adapter_name=emb_adapter_name)
+        if lora_weights_name_or_path is None:
+            logger.info("No LoRA weights provided for model, we will use the default random LoRA weights.")
+            model: PeftModel = get_peft_model(model, lora_config, adapter_name=adapter_name)
         else:
-            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_emb}")
-            model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path_for_emb, adapter_name=emb_adapter_name, is_trainable=True)
-
-        if gen_adapter_name != emb_adapter_name and gen_adapter_name is not None:
-            if lora_weights_name_or_path_for_gen is None:
-                logger.info("No LoRA weights provided for generation model, we will use the default random LoRA weights.")
-                model.add_adapter(gen_adapter_name, lora_config)
-            else:
-                logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_gen}")
-                model.load_adapter(lora_weights_name_or_path_for_gen, adapter_name=gen_adapter_name, is_trainable=True)
+            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path}")
+            model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path, adapter_name=adapter_name, is_trainable=True)
 
         if rank==0:
             model.print_trainable_parameters()
