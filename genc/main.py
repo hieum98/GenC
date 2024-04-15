@@ -49,6 +49,12 @@ def validate_and_correct_args(
     elif training_args.no_sync and gradient_accumulation_iters == 1:
         training_args.no_sync = False
 
+    # if one of the adapter names is provided, the other one should be provided as well
+    if model_args.gen_adapter_name is None and model_args.emb_adapter_name is not None:
+        model_args.gen_adapter_name = model_args.emb_adapter_name
+    if model_args.gen_adapter_name is not None and model_args.emb_adapter_name is None:
+        model_args.emb_adapter_name = model_args.gen_adapter_name
+
     # Save the corrected args into the yaml file
     config_file = Path(training_args.output_dir) / "config.yaml"
     config_file.parent.mkdir(parents=True, exist_ok=True)

@@ -30,104 +30,103 @@ export WANDB_PROJECT="mistral-7b-dpoc-msmarco"
 
 ######################
 
-ALLDS=(
-AmazonCounterfactualClassification
-AmazonPolarityClassification
-AmazonReviewsClassification
-ArguAna
-ArxivClusteringP2P
-ArxivClusteringS2S
-AskUbuntuDupQuestions
-BIOSSES
-Banking77Classification
-BiorxivClusteringP2P
-BiorxivClusteringS2S
-CQADupstackAndroidRetrieval
-CQADupstackEnglishRetrieval
-CQADupstackGamingRetrieval
-CQADupstackGisRetrieval
-CQADupstackMathematicaRetrieval
-CQADupstackPhysicsRetrieval
-CQADupstackProgrammersRetrieval
-CQADupstackStatsRetrieval
-CQADupstackTexRetrieval
-CQADupstackUnixRetrieval
-CQADupstackWebmastersRetrieval
-CQADupstackWordpressRetrieval
-ClimateFEVER
-DBPedia
-EmotionClassification
-FEVER
-FiQA2018
-HotpotQA
-ImdbClassification
-MSMARCO
-MTOPDomainClassification
-MTOPIntentClassification
-MassiveIntentClassification
-MassiveScenarioClassification
-MedrxivClusteringP2P
-MedrxivClusteringS2S
-MindSmallReranking
-NFCorpus
-NQ
-QuoraRetrieval
-RedditClustering
-RedditClusteringP2P
-SCIDOCS
-SICK-R
-STS12
-STS13
-STS14
-STS15
-STS16
-STS17
-STS22
-STSBenchmark
-SciDocsRR
-SciFact
-SprintDuplicateQuestions
-StackExchangeClustering
-StackExchangeClusteringP2P
-StackOverflowDupQuestions
-SummEval
-TRECCOVID
-Touche2020
-ToxicConversationsClassification
-TweetSentimentExtractionClassification
-TwentyNewsgroupsClustering
-TwitterSemEval2015
-TwitterURLCorpus
-)
+# ALLDS=(
+# AmazonCounterfactualClassification
+# AmazonPolarityClassification
+# AmazonReviewsClassification
+# ArguAna
+# ArxivClusteringP2P
+# ArxivClusteringS2S
+# AskUbuntuDupQuestions
+# BIOSSES
+# Banking77Classification
+# BiorxivClusteringP2P
+# BiorxivClusteringS2S
+# CQADupstackAndroidRetrieval
+# CQADupstackEnglishRetrieval
+# CQADupstackGamingRetrieval
+# CQADupstackGisRetrieval
+# CQADupstackMathematicaRetrieval
+# CQADupstackPhysicsRetrieval
+# CQADupstackProgrammersRetrieval
+# CQADupstackStatsRetrieval
+# CQADupstackTexRetrieval
+# CQADupstackUnixRetrieval
+# CQADupstackWebmastersRetrieval
+# CQADupstackWordpressRetrieval
+# ClimateFEVER
+# DBPedia
+# EmotionClassification
+# FEVER
+# FiQA2018
+# HotpotQA
+# ImdbClassification
+# MSMARCO
+# MTOPDomainClassification
+# MTOPIntentClassification
+# MassiveIntentClassification
+# MassiveScenarioClassification
+# MedrxivClusteringP2P
+# MedrxivClusteringS2S
+# MindSmallReranking
+# NFCorpus
+# NQ
+# QuoraRetrieval
+# RedditClustering
+# RedditClusteringP2P
+# SCIDOCS
+# SICK-R
+# STS12
+# STS13
+# STS14
+# STS15
+# STS16
+# STS17
+# STS22
+# STSBenchmark
+# SciDocsRR
+# SciFact
+# SprintDuplicateQuestions
+# StackExchangeClustering
+# StackExchangeClusteringP2P
+# StackOverflowDupQuestions
+# SummEval
+# TRECCOVID
+# Touche2020
+# ToxicConversationsClassification
+# TweetSentimentExtractionClassification
+# TwentyNewsgroupsClustering
+# TwitterSemEval2015
+# TwitterURLCorpus
+# )
 
 # Dataets for fewshot exps
-FEWSHOT=(
-Banking77Classification
-EmotionClassification
-ImdbClassification
-BiorxivClusteringS2S
-SprintDuplicateQuestions
-TwitterSemEval2015
-TwitterURLCorpus
-AskUbuntuDupQuestions
-ArguAna
-SCIDOCS
-STS12
-SummEval
-)
+# FEWSHOT=(
+# Banking77Classification
+# EmotionClassification
+# ImdbClassification
+# BiorxivClusteringS2S
+# SprintDuplicateQuestions
+# TwitterSemEval2015
+# TwitterURLCorpus
+# AskUbuntuDupQuestions
+# ArguAna
+# SCIDOCS
+# STS12
+# SummEval
+# )
 
 # For each dataset in ALLDS run the evaluation script
-for DS in ${ALLDS[@]}; do
-    echo "Running $DS"
-    python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/7b-esft_msmarco-50 \
-    --attn_implementation sdpa \
-    --use_bidirectional \
-    --task_names $DS \
-    --instruction_set medi2 \
-    --instruction_format genclm \
-    --batch_size 64 \
-    --pipeline_parallel \
-    --pooling_method mean
-done
+# for DS in ${ALLDS[@]}; do
+echo "Running evaluation for MTEB"
+python -m eval.eval_mteb \
+--model_name_or_path checkpoint/7b-esft_msmarco-50 \
+--attn_implementation sdpa \
+--use_bidirectional \
+--instruction_set medi2 \
+--instruction_format genclm \
+--batch_size 64 \
+--pipeline_parallel \
+--pooling_method mean
+# done
 

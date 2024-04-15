@@ -202,13 +202,14 @@ def load_model(
         else:
             logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_emb}")
             model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path_for_emb, adapter_name=emb_adapter_name, is_trainable=True)
-        
-        if lora_weights_name_or_path_for_gen is None:
-            logger.info("No LoRA weights provided for generation model, we will use the default random LoRA weights.")
-            model.add_adapter(gen_adapter_name, lora_config)
-        else:
-            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_gen}")
-            model.load_adapter(lora_weights_name_or_path_for_gen, adapter_name=gen_adapter_name, is_trainable=True)
+
+        if gen_adapter_name != emb_adapter_name and gen_adapter_name is not None:
+            if lora_weights_name_or_path_for_gen is None:
+                logger.info("No LoRA weights provided for generation model, we will use the default random LoRA weights.")
+                model.add_adapter(gen_adapter_name, lora_config)
+            else:
+                logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_gen}")
+                model.load_adapter(lora_weights_name_or_path_for_gen, adapter_name=gen_adapter_name, is_trainable=True)
 
         if rank==0:
             model.print_trainable_parameters()

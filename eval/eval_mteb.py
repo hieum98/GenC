@@ -80,7 +80,7 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             ### Open-domain Question Answering (QA) ###
             'MSMARCO': {
                 'query': 'Represent the web search query to find a passage that adequately addresses it',
-                'corpus': 'Represent the passage for finding a search query about it',
+                'corpus': 'Represent the passage for finding a search query that it addresses',
             },
             # Natural Questions [34] contains Google search queries and documents with paragraphs and answer spans within Wikipedia articles. We did not use the NQ version from ReQA [1] as it focused on queries having a short answer. As a result, we parsed the HTML of the original NQ dataset and include more complex development queries that often require a longer passage as answer compared to ReQA. We filtered out queries without an answer, or having a table as an answer, or with conflicting Wikipedia pages. We retain 2,681,468 passages as our corpus T and 3452 test queries Q from the original dataset.
             'NQ': {
@@ -883,6 +883,8 @@ def get_args():
 
 
 if __name__ == '__main__':
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
     args = get_args()
 
     model_name = args.model_name_or_path.rstrip('/').split('/')[-1]
