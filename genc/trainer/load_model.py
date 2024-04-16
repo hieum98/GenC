@@ -172,6 +172,11 @@ def load_model(
         torch.cuda.empty_cache()
     print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
 
+    if len(additional_special_tokens) > 0:
+        model.resize_token_embeddings(len(tokenizer))
+        config.vocab_size += len(additional_special_tokens)
+        model.config.vocab_size = len(tokenizer)
+
     # Load LoRA weights
     if use_lora:
         # PEFT will move quant_state to meta device, so this method prevents that
@@ -191,6 +196,7 @@ def load_model(
             bias="none",
             task_type=TaskType.CAUSAL_LM,
             target_modules=lora_target_modules,
+            modules_to_save = ["lm_head", "embed_tokens"],
             inference_mode=inference,
         )
             
@@ -206,11 +212,6 @@ def load_model(
         elif low_memory:
             # And then setup_quantized_peft_meta_for_training sets quant_state.to back to normal
             setup_quantized_peft_meta_for_training(model)
-    
-    if len(additional_special_tokens) > 0:
-        model.resize_token_embeddings(len(tokenizer))
-        config.vocab_size += len(additional_special_tokens)
-        model.config.vocab_size = len(tokenizer)
     
     if gradient_checkpointing:
         model.enable_input_require_grads()
