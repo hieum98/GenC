@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=50G
 #SBATCH --partition=preempt
-#SBATCH --constraint=gpu-40gb|gpu-80gb|h100|v100
+#SBATCH --constraint=gpu-40gb|gpu-80gb|h100
 #SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=10
 #SBATCH --time=3-00:00:00

@@ -1,3 +1,4 @@
+from audioop import add
 from json import load
 import os
 import random
@@ -23,6 +24,10 @@ if __name__=='__main__':
     parser.add_argument("--part", type=int, default=0)
     args = parser.parse_args()
     start = args.part * 10000
+    data_file = f"dataset/simcse/simcse_hard_{args.part}.jsonl"
+    if os.path.exists(data_file):
+        print(f"File {data_file} already exists")
+        exit(0)
 
     gen_model_name = "mistralai/Mistral-7B-Instruct-v0.2"
     device = torch.device("cuda")
@@ -45,72 +50,59 @@ if __name__=='__main__':
 
     def generate_positive_example(example: Dict):
         inputs = example['text']
-        prompt = "Generate a text that is similar or relevant with the input text. Your output must always be the text only, do not explain yourself or output anything else. Be creative!\nInput text:\n"
+        prompt = "Generate a positive example that is similar or relevant with the input text. Your output must always be the generated positive example only, do not explain yourself or output anything else. Be creative!\n"
         examples = []
         for text in inputs:
             chat = [{'role': 'user', 'content': f'{prompt}{text}'},]
-            example = gen_tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
-            examples.append({
-                "input_ids": example,
-                "input_length": len(example),
-            })
-        examples = gen_tokenizer.pad(examples, return_tensors='pt')
-        input_ids = examples['input_ids']
-        input_len = examples.pop('input_length')
+            example = gen_tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False, add_special_tokens=False)
+            examples.append(example)
+        encoded_examples = gen_tokenizer(examples, return_tensors='pt', padding=True, truncation=True)
+        input_ids = encoded_examples['input_ids']
         results = gen_model.generate(
             input_ids.to(device), 
-            attention_mask=examples['attention_mask'].to(device),
-            max_new_tokens=512,
-            num_beams=3,
-            do_sample=True)
+            attention_mask=encoded_examples['attention_mask'].to(device),
+            max_new_tokens=512,)
+        results = results[:, input_ids.size(1):]
         pos = []
-        for i in range(input_ids.size(0)):
-            txt = gen_tokenizer.decode(results[i][input_len[i]:], skip_special_tokens=True)
-            pos.append([txt])
-
-        neg_prompt = "Generate a text that seemingly relevant with the input text but actually not. Your output must always be the text only, do not explain yourself or output anything else. Be creative!\nInput text:\n"
+        txt = gen_tokenizer.batch_decode(results, skip_special_tokens=True)
+        for i, t in enumerate(txt):
+            pos.append([t])
+        
+        neg_prompt = "Create a negative example that appears to be relevant or related to the input text, but is actually not truly relevant or connected in a meaningful way. Your output must always be the generated negative example only, do not explain yourself or output anything else. Be creative!\n"
         examples = []
         for text in inputs:
             chat = [{'role': 'user', 'content': f'{neg_prompt}{text}'},]
-            example = gen_tokenizer.apply_chat_template(chat, tokenize=True, add_generation_prompt=True)
-            examples.append({
-                "input_ids": example,
-                "input_length": len(example),
-            })
-        examples = gen_tokenizer.pad(examples, return_tensors='pt')
-        input_ids = examples['input_ids']
-        input_len = examples.pop('input_length')
+            example = gen_tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+            examples.append(example)
+        encoded_examples = gen_tokenizer(examples, return_tensors='pt', padding=True, truncation=True)
+        input_ids = encoded_examples['input_ids']
         results = gen_model.generate(
             input_ids.to(device), 
-            attention_mask=examples['attention_mask'].to(device),
-            max_new_tokens=512,
-            num_beams=3,
-            do_sample=True)
+            attention_mask=encoded_examples['attention_mask'].to(device),
+            max_new_tokens=512,)
+        results = results[:, input_ids.size(1):]
         neg = []
-        for i in range(input_ids.size(0)):
-            txt = gen_tokenizer.decode(results[i][input_len[i]:], skip_special_tokens=True)
-            neg.append([txt])
-
-        neg_prompt_2 = "Create a piece of text that appears to be relevant or related to the input text, but is actually not truly relevant or connected in a meaningful way. Your output must always be the text only, do not explain yourself or output anything else. Be creative!\nInput text:\n"
+        txt = gen_tokenizer.batch_decode(results, skip_special_tokens=True)
+        for i, t in enumerate(txt):
+            neg.append([t])
+        
+        neg_prompt_2 = "Create a negative example that appears to be relevant or related to the input text, but is actually not truly relevant or connected in a meaningful way. Your output must always be the negative example only, do not explain yourself or output anything else. Be creative!\n"
         examples = []
         for text in inputs:
             chat = [{'role': 'user', 'content': f'{neg_prompt_2}{text}'},]
-            examples.append({
-                "input_ids": example,
-                "input_length": len(example),
-            })
-        examples = gen_tokenizer.pad(examples, return_tensors='pt')
-        input_ids = examples['input_ids']
-        input_len = examples.pop('input_length')
+            example = gen_tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+            examples.append(example)
+        encoded_examples = gen_tokenizer(examples, return_tensors='pt', padding=True, truncation=True)
+        input_ids = encoded_examples['input_ids']
         results = gen_model.generate(
             input_ids.to(device), 
-            attention_mask=examples['attention_mask'].to(device),
-            max_new_tokens=512,
-            num_beams=3,
-            do_sample=True)
-        for i in range(input_ids.size(0)):
-            txt = gen_tokenizer.decode(results[i][input_len[i]:], skip_special_tokens=True)
-            neg[i].append(txt)
+            attention_mask=encoded_examples['attention_mask'].to(device),
+            max_new_tokens=512,)
+        results = results[:, input_ids.size(1):]
+        txt = gen_tokenizer.batch_decode(results, skip_special_tokens=True)
+        for i, t in enumerate(txt):
+            neg[i].append(t)
+
         return {'pos': pos,
                 'neg': neg}
     
@@ -121,7 +113,7 @@ if __name__=='__main__':
     # Apply the function to generate positive and negative examples
     data = data.map(lambda x: generate_positive_example(x), batched=True, batch_size=16)
     # Save the dataset to jsonl file
-    data.to_json(f"simcse/simcse_hard_{start}.jsonl")
+    data.to_json(f"dataset/simcse/simcse_hard_{args.part}.jsonl")
 
     
 
