@@ -69,7 +69,30 @@ class MEDIDataset(DataModule):
         self.max_seq_length = -1 if max_seq_length is None else max_seq_length
     
     def prepare_data(self):
-        pass
+        def filter_too_long_instructions(example, tokenizer, max_seq_length):
+            # Filter out super long examples to avoid tokenize taking forever
+            if not filter_too_long_example(example['query'][0], max_seq_length) \
+                or not example['query'][1] \
+                or not filter_too_long_example(example['query'][1], max_seq_length):
+                return False
+            for ex in example['pos'] + example['neg']:
+                if not filter_too_long_example(ex[0], max_seq_length) \
+                    or not ex[1] \
+                    or not filter_too_long_example(ex[1], max_seq_length):
+                    return False
+            return True
+        train_ds = []
+        for file in self.train_files:
+            ds = load_dataset('json', data_files=file, split='train', cache_dir="cache")
+            ds = ds.filter(
+                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+                num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
+                load_from_cache_file=True,
+            )
+            train_ds.append(ds)
+        
+        if self.val_file is not None:
+            val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir="cache")
 
     def setup(self, stage: str = "") -> None:
         def filter_too_long_instructions(example, tokenizer, max_seq_length):
@@ -86,7 +109,7 @@ class MEDIDataset(DataModule):
             return True
         train_ds = []
         for file in self.train_files:
-            ds = load_dataset('json', data_files=file, split='train')
+            ds = load_dataset('json', data_files=file, split='train', cache_dir="cache")
             ds = ds.filter(
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
                 num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
@@ -95,7 +118,7 @@ class MEDIDataset(DataModule):
             train_ds.append(ds)
         
         if self.val_file is not None:
-            val_ds = load_dataset('json', data_files=self.val_file, split='train')
+            val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir="cache")
 
         self.train_dataset = MultipleDPOCDataset(
             data=train_ds,
