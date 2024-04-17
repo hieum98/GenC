@@ -575,7 +575,7 @@ def fit(
                 }
             def lora_filter(key: str, value: Any) -> bool:
                 return "lora_" in key or 'lm_head' in key or 'embed_tokens' in key
-            fabric.save(checkpoint_path, stage, model_filter={"model": lora_filter})
+            fabric.save(checkpoint_path, stage, filter={"model": lora_filter})
 
     
 

@@ -475,6 +475,10 @@ def dpo_loss(
         return losses, chosen_rewards, rejected_rewards
 
 
+def lora_filter(key: str, value: Any) -> bool:
+    return "lora_" in key or 'lm_head' in key or 'embed_tokens' in key
+
+
 class CycleIterator:
     """An iterator that cycles through an iterable indefinitely.
 

@@ -22,6 +22,7 @@ from genc.trainer.trainer_utils import (
     choose_logger,
     get_default_supported_precision,
     get_wrapping_policy,
+    lora_filter,
 )
 from genc.trainer.load_model import load_model
 from genc.args import DataArguments, ModelArguments, TrainingArguments, ValidationArgument
@@ -193,6 +194,7 @@ def main(
         sft_fit(
             fabric=fabric,
             model=model,
+            tokenizer=tokenizer,
             stage=stage,
             train_dataloader=train_dataloader,
             val_dataloader=val_dataloader,
@@ -204,6 +206,7 @@ def main(
         dpo_fit(
             fabric=fabric,
             model=model,
+            tokenizer=tokenizer,
             ref_model=ref_model,
             stage=stage,
             train_dataloader=train_dataloader,
@@ -219,7 +222,7 @@ def main(
     save_full_path = Path(training_args.output_dir)/ training_args.mode / "final" / "model.ckpt"
     save_full_path.mkdir(parents=True, exist_ok=True)
     print("Saving full model weights to", save_full_path)
-    fabric.save(save_full_path, model)
+    fabric.save(save_full_path, {'model':model}, filter=lora_filter)
 
 def setup(
     data_args: DataArguments,
