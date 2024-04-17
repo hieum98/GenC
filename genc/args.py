@@ -72,7 +72,7 @@ class ModelArguments:
                 )
             },
         )
-    adapter_name: Optional[str] = field(
+    emb_adapter_name: Optional[str] = field(
         default="emb",
         metadata={
             "help": (
@@ -80,12 +80,11 @@ class ModelArguments:
                 )
             },
         )
-    lora_weights_name_or_path: Optional[str] = field(
-        default=None,
+    gen_adapter_name: Optional[str] = field(
+        default="gen",
         metadata={
             "help": (
-                "If the model has been trained with LoRA, "
-                "path or huggingface hub name or local path to the pretrained weights that uses for embedding task."
+                "The name of the generation adapter to train."
                 )
             },
         )
