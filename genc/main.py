@@ -16,6 +16,7 @@ from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 from genc.data.base import DataModule
 from genc.data.medi2bge import MEDIDataset
 from genc.data.msmarco import MSMARCODataset
+from genc.data.simcse import SimCSEDataset
 from genc.trainer.lora_sft_finetune import fit as sft_fit
 from genc.trainer.lora_dpo_finetune import fit as dpo_fit
 from genc.trainer.trainer_utils import (
@@ -249,6 +250,14 @@ def setup(
         )
     elif data_args.data_name == 'medi2bge':
         data = MEDIDataset(
+            data_dir=data_args.data_dir,
+            val_file=data_args.val_file,
+            seed=training_args.seed,
+            num_workers=data_args.num_workers,
+            ignore_index=data_args.ignore_index,
+        )
+    elif data_args.data_name == 'simcse':
+        data = SimCSEDataset(
             data_dir=data_args.data_dir,
             val_file=data_args.val_file,
             seed=training_args.seed,
