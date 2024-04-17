@@ -196,7 +196,7 @@ class MSMARCODataset(DataModule):
         collator = EmbCollator(tokenizer=self.tokenizer)
         return DataLoader(
             self.val_dataset,
-            batch_size=self.batch_size,
+            batch_size=8, # Fixed batch size for evaluation
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=collator,

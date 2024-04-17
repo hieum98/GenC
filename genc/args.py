@@ -80,29 +80,11 @@ class ModelArguments:
                 )
             },
         )
-    lora_weights_name_or_path_for_emb: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": (
-                "If the model has been trained with LoRA, "
-                "path or huggingface hub name or local path to the pretrained weights that uses for embedding task."
-                )
-            },
-        )
     gen_adapter_name: Optional[str] = field(
         default="gen",
         metadata={
             "help": (
                 "The name of the generation adapter to train."
-                )
-            },
-        )
-    lora_weights_name_or_path_for_gen: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": (
-                "If the model has been trained with LoRA, "
-                "path or huggingface hub name or local path to the pretrained weights that uses for generation task."
                 )
             },
         )
@@ -156,14 +138,6 @@ class TrainingArguments():
         default='edpo',
         metadata={"help": "The mode of training. Should be one of ['edpo', 'esft']"},
         )
-    gen_loss_weight: float = field(
-        default=1.0,
-        metadata={"help": "The weight for generation (dpo/sft) loss."},
-    )
-    kl_loss_weight: float = field(
-        default=1.0,
-        metadata={"help": "The weight for kl loss."},
-    )
     
     # FSDP settings
     strategy: Optional[str] = field(
@@ -251,6 +225,14 @@ class TrainingArguments():
                 "Whether to use MultiSimilarityMiner. If True, the model will be trained with MultiSimilarityMiner"
             )
         },
+    )
+    gen_loss_weight: float = field(
+        default=1.0,
+        metadata={"help": "The weight for generation (dpo/sft) loss."},
+    )
+    kl_loss_weight: float = field(
+        default=1.0,
+        metadata={"help": "The weight for kl loss."},
     )
     dpo_loss_type: Optional[str] = field(
         default="sigmoid",

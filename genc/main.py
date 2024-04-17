@@ -49,12 +49,6 @@ def validate_and_correct_args(
     elif training_args.no_sync and gradient_accumulation_iters == 1:
         training_args.no_sync = False
 
-    # if one of the adapter names is provided, the other one should be provided as well
-    if model_args.gen_adapter_name is None and model_args.emb_adapter_name is not None:
-        model_args.gen_adapter_name = model_args.emb_adapter_name
-    if model_args.gen_adapter_name is not None and model_args.emb_adapter_name is None:
-        model_args.emb_adapter_name = model_args.gen_adapter_name
-
     # Save the corrected args into the yaml file
     config_file = Path(training_args.output_dir) / "config.yaml"
     config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -118,8 +112,6 @@ def main(
         use_lora=model_args.use_lora,
         emb_adapter_name=model_args.emb_adapter_name,
         gen_adapter_name=model_args.gen_adapter_name,
-        lora_weights_name_or_path_for_emb=model_args.lora_weights_name_or_path_for_emb,
-        lora_weights_name_or_path_for_gen=model_args.lora_weights_name_or_path_for_gen,
         lora_target_modules=["all"],
         lora_r=model_args.lora_r,
         lora_alpha=model_args.lora_alpha,
@@ -204,16 +196,19 @@ def main(
             stage=stage,
             train_dataloader=train_dataloader,
             val_dataloader=val_dataloader,
+            model_args=model_args,
             training_args=training_args,
             validation_args=validation_args,
         )
     elif training_args.mode == 'edpo':
         dpo_fit(
+            fabric=fabric,
             model=model,
             ref_model=ref_model,
             stage=stage,
             train_dataloader=train_dataloader,
             val_dataloader=val_dataloader,
+            model_args=model_args,
             training_args=training_args,
             validation_args=validation_args,
         )
@@ -310,7 +305,7 @@ def setup(
         strategy = "auto"
     
     logger_dir = Path(training_args.output_dir) / f"logs_{training_args.logger_name}"
-    logger_name = f"dpoc-{model_args.model_name_or_path.split('/')[-1]}"
+    logger_name = f"genclm-{model_args.model_name_or_path.split('/')[-1]}"
     logger = choose_logger(training_args.logger_name, logger_dir, name=logger_name, log_interval=training_args.log_interval)
 
     fabric = L.Fabric(

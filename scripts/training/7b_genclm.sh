@@ -25,5 +25,5 @@ cd /home/hieum/uonlp/LLM_Emb
 # export NCCL_SOCKET_IFNAME=^docker0,lo
 
 # Run your training script
-srun python -m genc.main scripts/configs/mistral-7b-dpoc_3_node_2gpus.yaml
+srun python -m genc.main --config_file scripts/configs/msmarco.yaml --nodes 1 --devices 4 --mode esft --output_dir output/esft_msmarco_7b
 

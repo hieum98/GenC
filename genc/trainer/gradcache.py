@@ -308,6 +308,18 @@ class GradCache:
                     else:
                         surrogate.backward()
 
+    def get_reps_only(
+            self,
+            *model_inputs,
+            ):
+        all_reps = []
+        model_inputs = [self.split_inputs(x, chunk_size) for x, chunk_size in zip(model_inputs, self.chunk_sizes)]
+
+        for model, x in zip(self.models, model_inputs):
+            model_reps, _ = self.forward_no_grad(model, x)
+            all_reps.append(model_reps)
+        return  torch.cat(all_reps, dim=0).clone().detach()
+
     def cache_step(
             self,
             *model_inputs,
@@ -339,7 +351,7 @@ class GradCache:
                 self.models, model_inputs, cache, all_rnd_states):
             self.forward_backward(model, x, model_cache, rnd_states, no_sync_except_last=no_sync_except_last)
 
-        return loss, torch.cat(all_reps, dim=0).clone().detach()
+        return loss
 
     
 

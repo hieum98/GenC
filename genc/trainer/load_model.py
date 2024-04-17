@@ -19,12 +19,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 from accelerate import init_empty_weights
 from bitsandbytes.nn import Linear4bit, Params4bit
-from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+from peft import LoraConfig, TaskType
 from fastcore.parallel import parallel
 
 from genc.model.genc import MistralEmbeddingLM
-from genc.trainer.loading_utils import load_and_quantize_parallel, n_loading_workers, replace_linear, setup_quantized_meta_for_peft, setup_quantized_peft_meta_for_training
+from genc.model.lora_genc import LoRaGenc
 from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos
+from genc.trainer.trainer_utils import find_all_linear_names
+from genc.trainer.loading_utils import load_and_quantize_parallel, n_loading_workers, replace_linear
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,6 @@ def load_model(
         use_lora: bool = False,
         emb_adapter_name: Optional[str] = "emb",
         gen_adapter_name: Optional[str] = "gen",
-        lora_weights_name_or_path_for_emb: Optional[str] = None,
-        lora_weights_name_or_path_for_gen: Optional[str] = None,
         lora_target_modules: Optional[List[str]] = None,
         lora_r: Optional[int] = 8,
         lora_alpha: Optional[int] = 16,
@@ -53,9 +53,7 @@ def load_model(
         rank: int = 0,
         local_rank: int = 0,
         gradient_checkpointing: bool = False,
-        **kwargs,) -> Tuple[Union[PreTrainedModel, PeftModel], PreTrainedTokenizer]:
-    if (lora_weights_name_or_path_for_emb is not None or lora_weights_name_or_path_for_gen is not None) and not use_lora:
-        logger.warning("You provided a path to LoRA weights but use_lora is set to False. We will set use_lora=True.")
+        **kwargs,) -> Tuple[Union[PreTrainedModel, LoRaGenc], PreTrainedTokenizer]:
 
     # Load tokenizer
     tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
@@ -78,7 +76,6 @@ def load_model(
             additional_special_tokens.remove(item)
     if len(additional_special_tokens) > 0:
         tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
-    new_vocab_size = len(tokenizer)
 
     # Load model
     logger.info(f"Loading model from {model_weights_name_or_path}")
@@ -99,7 +96,7 @@ def load_model(
         )
     # Create the model
     # Specify model args
-    model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, new_vocab_size]
+    model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, tokenizer]
     if quantization is False:
         model = MistralEmbeddingLM.from_pretrained(
             model_weights_name_or_path,
@@ -138,7 +135,7 @@ def load_model(
                 pooling_method=pooling_method,
                 loss_gen_type=loss_gen_type,
                 temperature=temperature,
-                new_vocab_size=new_vocab_size,
+                tokenizer=tokenizer,
             )
             model.model = replace_linear(model.model, Linear4bit, compute_dtype=compute_dtype,
                                              quant_type='nf4', quant_storage=torch_dtype)
@@ -174,18 +171,20 @@ def load_model(
         torch.cuda.empty_cache()
     print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
 
+    if len(additional_special_tokens) > 0:
+        model.resize_token_embeddings(len(tokenizer))
+        config.vocab_size += len(additional_special_tokens)
+        model.config.vocab_size = len(tokenizer)
+
     # Load LoRA weights
     if use_lora:
         # PEFT will move quant_state to meta device, so this method prevents that
         # from happening by replacing quant_state.to with a dummy function
-        if rank!=0 and low_memory:
-            setup_quantized_meta_for_peft(model)
+        assert emb_adapter_name is not None or gen_adapter_name is not None, "You must provide at least one adapter name"
 
         if lora_target_modules == ["all"]:
-            logger.warning(
-                "You provided 'all' as target modules, we will use all the model to which LoRA can be applied."
-            )
-            lora_target_modules = "all-linear"
+            logger.warning("You provided 'all' as target modules, we will use all the model to which LoRA can be applied.")
+            lora_target_modules = find_all_linear_names(model, quantization=quantization)
         lora_config = LoraConfig(
             r=lora_r,
             lora_alpha=lora_alpha,
@@ -193,37 +192,42 @@ def load_model(
             bias="none",
             task_type=TaskType.CAUSAL_LM,
             target_modules=lora_target_modules,
+            modules_to_save = ["lm_head", "embed_tokens"],
             inference_mode=inference,
         )
-            
-        if lora_weights_name_or_path_for_emb is None:
-            logger.info("No LoRA weights provided for embedding model, we will use the default random LoRA weights.")
-            model: PeftModel = get_peft_model(model, lora_config, adapter_name=emb_adapter_name)
-        else:
-            logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_emb}")
-            model: PeftModel = PeftModel.from_pretrained(model, lora_weights_name_or_path_for_emb, adapter_name=emb_adapter_name, is_trainable=True)
-
-        if gen_adapter_name != emb_adapter_name and gen_adapter_name is not None:
-            if lora_weights_name_or_path_for_gen is None:
-                logger.info("No LoRA weights provided for generation model, we will use the default random LoRA weights.")
-                model.add_adapter(gen_adapter_name, lora_config)
+        if emb_adapter_name is not None:
+            model = LoRaGenc(
+                model=model,
+                lora_config=lora_config,
+                adapter_name=emb_adapter_name
+            )
+        if gen_adapter_name is not None and gen_adapter_name != emb_adapter_name:
+            if isinstance(model, LoRaGenc):
+                model.add_adapter(adapter_name=gen_adapter_name, peft_config=lora_config)
             else:
-                logger.info(f"Loading pretrained LORA weights from {lora_weights_name_or_path_for_gen}")
-                model.load_adapter(lora_weights_name_or_path_for_gen, adapter_name=gen_adapter_name, is_trainable=True)
-
+                model = LoRaGenc(
+                    model=model,
+                    lora_config=lora_config,
+                    adapter_name=gen_adapter_name
+                )
+        # Always set the emb adapter as the current adapter
+        model.set_adapter(emb_adapter_name)
+        
         if rank==0:
             model.print_trainable_parameters()
-        elif low_memory:
-            # And then setup_quantized_peft_meta_for_training sets quant_state.to back to normal
-            setup_quantized_peft_meta_for_training(model)
-    
-    if len(additional_special_tokens) > 0:
-        model.resize_token_embeddings(len(tokenizer))
-        config.vocab_size += len(additional_special_tokens)
-        model.config.vocab_size = len(tokenizer)
     
     if gradient_checkpointing:
-        model.enable_input_require_grads()
+        if not (
+            getattr(model, "is_loaded_in_8bit", False)
+            or getattr(model, "is_loaded_in_4bit", False)
+            or getattr(model, "is_quantized", False)
+        ):
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+            elif hasattr(model, "get_input_embeddings"):
+                def make_inputs_require_grad(module, input, output):
+                    output.requires_grad_(True)
+                model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
     if rank==0:
         logger.info({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})

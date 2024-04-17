@@ -4,7 +4,7 @@ import logging
 from typing import Dict, List, Optional, Tuple, Union
 import torch 
 from transformers import (AutoConfig, 
-                          MistralPreTrainedModel,
+                          PreTrainedTokenizer,
                           MistralForCausalLM,)
 from transformers.utils import ModelOutput
 from transformers.integrations import is_deepspeed_zero3_enabled, deepspeed_config
@@ -16,16 +16,6 @@ from genc.model.modules import NextTokenLoss
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class EmLMTrainOutput(ModelOutput):
-    loss: Optional[torch.FloatTensor] = None
-    logits: torch.FloatTensor = None
-    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
-    hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
-    attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
-    loss_emb: Optional[torch.Tensor] = None
-    reps: Optional[torch.Tensor] = None # [b, d]
-
 class MistralEmbeddingLM(MistralForCausalLM):
     def __init__(
             self,
@@ -35,7 +25,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
             pooling_method: str = 'mean', # One of ['cls', 'lasttoken', 'mean', 'weightedmean']
             loss_gen_type: str = "mixed",
             temperature: float = 0.05,
-            new_vocab_size: Optional[int] = None,
+            tokenizer: Optional[PreTrainedTokenizer] = None,
             ) -> None:
     
         super().__init__(config)
@@ -43,6 +33,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
         self.is_causal = not use_bidirectional
         self.normalized = normalized
         self.pooling_method = pooling_method
+        self.tokenizer = tokenizer
 
         # Embedding loss
         self.cons_loss = losses.NTXentLoss(
@@ -52,11 +43,11 @@ class MistralEmbeddingLM(MistralForCausalLM):
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
 
         if torch.distributed.is_initialized():
-            self.loss = pml_dist.DistributedLossWrapper(self.loss)
+            self.cons_loss = pml_dist.DistributedLossWrapper(self.cons_loss)
             self.miner = pml_dist.DistributedMinerWrapper(self.miner)
 
         # Generation loss
-        vocab_size = new_vocab_size if new_vocab_size is not None else config.vocab_size
+        vocab_size = len(tokenizer) if tokenizer is not None else config.vocab_size
         self.gen_loss_fn = NextTokenLoss(vocab_size, loss_gen_type)
     
     def pooling(
@@ -116,13 +107,21 @@ class MistralEmbeddingLM(MistralForCausalLM):
         Returns:
             hidden_state: [b, d]
         """
-        kwargs = {'input_ids': input_ids, 
-                  'attention_mask': attention_mask,}
-        if self.is_causal:
-            kwargs['is_causal'] = True
+        # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
+        # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
+        # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device)
+        # inputs_embeds = self.model.embed_tokens(input_ids)
+        # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1)) # [b, n, d]
+        # non_trainable_inputs_embeds = inputs_embeds.clone().detach()
+        # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
         
         # Get the hidden states
-        outputs = self.model(**kwargs)[0] # [b, n, h]
+        kwargs = {'input_ids': input_ids, 
+                  'attention_mask': attention_mask,
+                  'return_dict': True,}
+        if self.is_causal:
+            kwargs['is_causal'] = True
+        outputs = self.model(**kwargs).last_hidden_state
 
         # Pool the hidden states
         # Mask the prompt tokens
@@ -175,7 +174,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
         is_emb: bool = False,
         is_gen: bool = False,
         use_miner: bool = False,
-        ) -> EmLMTrainOutput:
+        ):
         """
         Args:
             input_ids: [b, n]
@@ -203,6 +202,14 @@ class MistralEmbeddingLM(MistralForCausalLM):
         }
 
         if is_gen:
+            # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
+            # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
+            # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device) # [b, n]
+            # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, self.config.hidden_size) # [b, n, d]
+            # inputs_embeds = self.model.embed_tokens(input_ids)
+            # non_trainable_inputs_embeds = inputs_embeds.clone().detach() # [b, n, d]
+            # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
+
             gen_kwargs = {
                 "return_dict": return_dict,
                 "position_ids": position_ids,
@@ -217,11 +224,17 @@ class MistralEmbeddingLM(MistralForCausalLM):
                 attention_mask=attention_mask,
                 **gen_kwargs
             )
+            logits = gen_outputs.logits # [b, n, vocab_size]
+            # mask = torch.zeros_like(logits)
+            # added_tokens_ids = list(set(self.tokenizer.get_added_vocab().values()))
+            # mask[:, :, added_tokens_ids] = 1
+            # non_trainable_logits = logits.clone().detach()
+            # logits = logits * mask + (1 - mask) * non_trainable_logits
+
             # Map all properties from the gen_outputs to the output
             for k, v in gen_outputs.items():
                 output[k] = v
             if labels is not None:
-                logits = gen_outputs.logits
                 loss_gen = self.gen_loss_fn(labels, logits, loss_weight_mask)
                 output['loss'] = loss_gen
 

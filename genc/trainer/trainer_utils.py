@@ -8,6 +8,7 @@ from typing_extensions import Self
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from transformers.pytorch_utils import Conv1D
 from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, transformer_auto_wrap_policy
 import lightning as L
 from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
@@ -143,24 +144,33 @@ def prepare_model_for_kbit_training(
     return model
 
 
-def find_all_linear_names(model, quantization: Optional[bool] = False):
+def find_all_linear_names(model: nn.Module, quantization: Optional[bool] = False):
+    if not isinstance(model, PreTrainedModel):
+        raise ValueError("Model must be an instance of `transformers.PreTrainedModel`")
+    
     if quantization:
         from bitsandbytes.nn import Linear4bit
 
-        cls = Linear4bit
+        cls = (Linear4bit, Conv1D)
     else:
-        cls = torch.nn.Linear
+        cls = (torch.nn.Linear, Conv1D)
 
     lora_module_names = set()
     for name, module in model.named_modules():
         if isinstance(module, cls):
-            names = name.split(".")
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+            names = name.rsplit(".", 1)[-1]  # get the base name
+            lora_module_names.add(names)
             
-    if "lm_head" in lora_module_names:  # needed for 16-bit
+    if "lm_head" in lora_module_names:  
         lora_module_names.remove("lm_head")
-    return list(lora_module_names)
 
+    # ignore the last classification head for text generation models
+    output_emb = model.get_output_embeddings()
+    if output_emb is not None:
+        last_module_name = [name for name, module in model.named_modules() if module is output_emb][0]
+        lora_module_names -= {last_module_name}
+        
+    return list(lora_module_names)
 
 def get_trainable_parameters(model: PreTrainedModel) -> Tuple[int, int, float]:
     """
@@ -292,7 +302,7 @@ def online_hard_example_mining(
     rejects_attention_mask: torch.Tensor,
     rejects_labels: torch.Tensor,
     rejects_loss_weight_mask: torch.Tensor,
-    training_args: TrainingArguments,
+    topk_neg: int,
     ):
     bs = query_input_ids.size(0)
     num_pos = pos_input_ids.size(1)
@@ -306,7 +316,9 @@ def online_hard_example_mining(
     pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
     neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
     # Get topk similar negatives
-    _, topk_neg_sim_idx = torch.topk(neg_sim, k=training_args.topk_neg*2, dim=-1) # [bs, topk_neg]
+    # TODO: Double check this logic
+    # _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg*2, dim=-1) # [bs, topk_neg]
+    _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg, dim=-1) # [bs, topk_neg]
     # Get top1 dissimilar positives
     _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
     
@@ -461,21 +473,6 @@ def dpo_loss(
             ).detach()
         )
         return losses, chosen_rewards, rejected_rewards
-
-
-def kl_loss(
-        emb_reps: torch.FloatTensor,
-        gen_scores: torch.FloatTensor,
-        bs: int,
-        ):
-    query_reps = emb_reps[:bs] # [bs, emb_dim]
-    passage_reps = emb_reps[bs:].reshape(bs, -1, emb_reps.size(-1)) # [bs, 1 + topk_neg, emb_dim]
-    dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
-    dual_score = torch.log_softmax(dual_score, dim=1) # [bs, 1 + topk_neg]    
-    # KL loss
-    kl = torch.nn.KLDivLoss(reduction="mean", log_target=True)
-    kl_loss = kl(dual_score, gen_scores)
-    return kl_loss
 
 
 class CycleIterator:
