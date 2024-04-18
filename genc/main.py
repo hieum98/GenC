@@ -341,8 +341,8 @@ def setup(
 
 if __name__=='__main__':
     os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
-    os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
-    os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
+    # os.environ['HF_HOME'] = '/mnt/hieu/hf_cache'
+    # os.environ['TRANSFORMERS_CACHE'] = '/mnt/hieu/hf_cache'
     torch.set_float32_matmul_precision("high")
 
     import argparse

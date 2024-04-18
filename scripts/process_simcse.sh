@@ -28,6 +28,6 @@ cd /home/hieum/uonlp/LLM_Emb
 
 echo "Part: $SLURM_ARRAY_TASK_ID"
 
-python scripts/process_simcse.py --part $SLURM_ARRAY_TASK_ID
+python scripts/augment_simcse.py --part $SLURM_ARRAY_TASK_ID
 
 

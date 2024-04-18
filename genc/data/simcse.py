@@ -150,13 +150,13 @@ class SimCSEDataset(DataModule):
                     return False
             return True
                 
-        train_ds = load_dataset('json', data_files=self.train_files, split='train', cache_dir='cache')
+        train_ds = load_dataset('json', data_files=self.train_files, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
             num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
             load_from_cache_file=True,
         )
-        val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir='cache')
+        val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
     def setup(self, stage: str = "") -> None:
         def filter_too_long_instructions(example, tokenizer, max_seq_length):
@@ -172,13 +172,13 @@ class SimCSEDataset(DataModule):
                     return False
             return True
                 
-        train_ds = load_dataset('json', data_files=self.train_files, split='train', cache_dir='cache')
+        train_ds = load_dataset('json', data_files=self.train_files, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
             num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
             load_from_cache_file=True,
         )
-        val_ds = load_dataset('json', data_files=self.val_file, split='train', cache_dir='cache')
+        val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
         self.train_dataset = DPOCDataset(
             data=train_ds,

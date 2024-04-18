@@ -13,8 +13,11 @@
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-7b-simcse-%j.err
 
 # Activate conda environment
-source activate llm
+source /home/hieum/.bashrc
+conda activate llm
 cd /home/hieum/uonlp/LLM_Emb
+export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
+export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # Debugging flags (optional)
 # export NCCL_DEBUG=INFO

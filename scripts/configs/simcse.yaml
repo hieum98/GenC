@@ -1,6 +1,6 @@
 # Data args
 data_name: simcse
-data_dir: /home/hieum/uonlp/LLM_Emb/dataset/simcse
+data_dir: /home/hieum/uonlp/LLM_Emb/dataset/simcse/data
 val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 20
 
