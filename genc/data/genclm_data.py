@@ -16,15 +16,15 @@ from genc.data.base import (
     EmbDataset,
     EmbCollator
     )
-from genc.data.utils import filter_too_long_example
+from genc.data.utils import filter_too_long_example, filter_too_long_instructions
 
 
 @dataclass
-class MEDIDataset(DataModule):
+class GenCLMDataset(DataModule):
     """
     DataModule for the MEDI dataset.
     """
-    data_dir: str="./dataset/MEDI2BGE"
+    data_dir: str="dataset/GenCLM"
     val_file: str=None
 
     seed: int = 42
@@ -69,25 +69,13 @@ class MEDIDataset(DataModule):
         self.max_seq_length = -1 if max_seq_length is None else max_seq_length
     
     def prepare_data(self):
-        def filter_too_long_instructions(example, tokenizer, max_seq_length):
-            # Filter out super long examples to avoid tokenize taking forever
-            if not filter_too_long_example(example['query'][0], max_seq_length) \
-                or not example['query'][1] \
-                or not filter_too_long_example(example['query'][1], max_seq_length):
-                return False
-            for ex in example['pos'] + example['neg']:
-                if not filter_too_long_example(ex[0], max_seq_length) \
-                    or not ex[1] \
-                    or not filter_too_long_example(ex[1], max_seq_length):
-                    return False
-            return True
         train_ds = []
         for file in self.train_files:
             ds = load_dataset('json', data_files=file, split='train')
             ds = ds.filter(
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
                 num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-                load_from_cache_file=True,
+                load_from_cache_file=False,
             )
             train_ds.append(ds)
         
@@ -95,18 +83,6 @@ class MEDIDataset(DataModule):
             val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
     def setup(self, stage: str = "") -> None:
-        def filter_too_long_instructions(example, tokenizer, max_seq_length):
-            # Filter out super long examples to avoid tokenize taking forever
-            if not filter_too_long_example(example['query'][0], max_seq_length) \
-                or not example['query'][1] \
-                or not filter_too_long_example(example['query'][1], max_seq_length):
-                return False
-            for ex in example['pos'] + example['neg']:
-                if not filter_too_long_example(ex[0], max_seq_length) \
-                    or not ex[1] \
-                    or not filter_too_long_example(ex[1], max_seq_length):
-                    return False
-            return True
         train_ds = []
         for file in self.train_files:
             ds = load_dataset('json', data_files=file, split='train')

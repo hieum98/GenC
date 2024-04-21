@@ -10,7 +10,7 @@ class DataArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
     data_name: str = field(
-        default="medi2bge",
+        default="genclm",
         metadata={"help": "The name of the dataset."}
         )
     data_dir: str = field(

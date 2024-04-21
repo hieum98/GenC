@@ -16,7 +16,7 @@ from genc.data.base import (
     EmbDataset,
     EmbCollator
     )
-from genc.data.utils import filter_too_long_example
+from genc.data.utils import filter_too_long_example, filter_too_long_instructions
 
 def get_dataloader(
     data_files: Path,
@@ -136,20 +136,7 @@ class MSMARCODataset(DataModule):
     def prepare_data(self):
         pass
 
-    def setup(self, stage: str = "") -> None:
-        def filter_too_long_instructions(example, tokenizer, max_seq_length):
-            # Filter out super long examples to avoid tokenize taking forever
-            if not filter_too_long_example(example['query'][0], max_seq_length) \
-                or not example['query'][1] \
-                or not filter_too_long_example(example['query'][1], max_seq_length):
-                return False
-            for ex in example['pos'] + example['neg']:
-                if not filter_too_long_example(ex[0], max_seq_length) \
-                    or not ex[1] \
-                    or not filter_too_long_example(ex[1], max_seq_length):
-                    return False
-            return True
-                
+    def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),

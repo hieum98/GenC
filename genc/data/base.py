@@ -107,6 +107,8 @@ class DPOCDataset(Dataset):
             add_special_tokens=False,
             )["input_ids"]
         if len(prompt_ids) > len(model_inputs["input_ids"]):
+            print(f"Prompt: {emb_prompt}")
+            print(f"Eample: {emb_example}")
             raise ValueError("Prompt is longer than the model input")
         model_inputs["prompt_length"] = len(prompt_ids)
         model_inputs['label'] = idx
@@ -139,6 +141,8 @@ class DPOCDataset(Dataset):
             add_special_tokens=False,
             )["input_ids"]
         if len(prompt_ids) > len(model_inputs["input_ids"]):
+            print(f"Prompt: {prompt}")
+            print(f"Response: {example}")
             raise ValueError("Prompt is longer than the model input")
         prompt_len = len(prompt_ids)
         loss_weight_mask = np.ones(len(model_inputs["labels"]), dtype=np.float32)
@@ -299,7 +303,7 @@ class MutipleDPOCSampler(Sampler):
 
     def __iter__(self):
         # subsample
-        indices = self.indices[self.rank:len(indices):self.num_replicas]
+        indices = self.indices[self.rank:len(self.indices):self.num_replicas]
         assert len(indices) == self.num_samples
         return iter(indices)
 

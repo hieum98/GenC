@@ -14,7 +14,7 @@ from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBas
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
 
 from genc.data.base import DataModule
-from genc.data.medi2bge import MEDIDataset
+from genc.data.genclm_data import GenCLMDataset
 from genc.data.msmarco import MSMARCODataset
 from genc.data.simcse import SimCSEDataset
 from genc.trainer.lora_sft_finetune import fit as sft_fit
@@ -248,8 +248,8 @@ def setup(
             seed=training_args.seed,
             num_workers=data_args.num_workers,
         )
-    elif data_args.data_name == 'medi2bge':
-        data = MEDIDataset(
+    elif data_args.data_name == 'genclm':
+        data = GenCLMDataset(
             data_dir=data_args.data_dir,
             val_file=data_args.val_file,
             seed=training_args.seed,

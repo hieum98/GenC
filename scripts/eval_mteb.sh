@@ -4,16 +4,16 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=100G
-#SBATCH --constraint=gpu-80gb,no-mig
+#SBATCH --constraint=gpu-40gb|gpu-80gb|gpu-20gb
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
-#SBATCH --cpus-per-task=20
-#SBATCH --output=/home/hieum/uonlp/LLM_Emb/mistral-7b-dpoc-msmarco-%j.out
-#SBATCH --error=/home/hieum/uonlp/LLM_Emb/mistral-7b-dpoc-msmarco-%j.err
-#SBATCH --exclusive
-#SBATCH --array=0-68%69
+#SBATCH --cpus-per-task=10
+#SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
+#SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
+#SBATCH --array=0-12
 
 # FEWSHOT: 0-9%10
+# ALLDS: 0-69
 
 ######################
 ### Set enviroment ###
@@ -21,7 +21,7 @@
 # Activate conda environment
 source activate llm
 cd /home/hieum/uonlp/LLM_Emb
-export WANDB_PROJECT="mistral-7b-dpoc-msmarco"
+export WANDB_PROJECT="mteb"
 ######################
 
 ######################
@@ -29,6 +29,27 @@ export WANDB_PROJECT="mistral-7b-dpoc-msmarco"
 ######################
 
 ######################
+QUICK_EVAL=(
+    # Classification
+    Banking77Classification
+    EmotionClassification
+    # Clustering
+    MedrxivClusteringS2S
+    # PairClassification
+    TwitterSemEval2015
+    # Reranking
+    AskUbuntuDupQuestions
+    # Retrieval
+    ArguAna
+    NFCorpus
+    SciFact
+    # STS
+    BIOSSES
+    STS17
+    STSBenchmark
+    # Summarization
+    SummEval
+)
 
 ALLDS=(
 AmazonCounterfactualClassification
@@ -116,23 +137,21 @@ TwitterURLCorpus
 # SummEval
 # )
 
-# DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # For each dataset in ALLDS run the evaluation script
-for DS in ${ALLDS[@]}; do
-    echo "Running evaluation for MTEB"
-    python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/7b-esft_msmarco-50 \
-    --attn_implementation sdpa \
-    --use_bidirectional \
-    --task_names $DS \
-    --instruction_set medi2 \
-    --instruction_format genclm \
-    --batch_size 64 \
-    --pipeline_parallel \
-    --pooling_method mean
-done
+echo "Running evaluation for MTEB $DS"
+python -m eval.eval_mteb \
+--model_name_or_path checkpoint/7b-esft_simcse-100 \
+--attn_implementation sdpa \
+--use_bidirectional \
+--task_names $DS \
+--instruction_set medi2 \
+--instruction_format genclm \
+--batch_size 64 \
+--pipeline_parallel \
+--pooling_method mean
 

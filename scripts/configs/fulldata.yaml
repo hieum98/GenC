@@ -1,8 +1,7 @@
 # Data args
-data_name: msmarco
-data_dir: /mnt/hieu/msmarco
-train_file: msmarco_hard.jsonl
-val_file: msmarco_test.jsonl
+data_name: genclm
+data_dir: /home/hieum/uonlp/LLM_Emb/dataset/GenCLM
+val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 20
 
 # Model args
@@ -15,8 +14,8 @@ loss_gen_type: mixed
 temperature: 0.07
 # Lora setting
 use_lora: True
-emb_adapter_name: emb_msmarco
-gen_adapter_name: gen_msmarco
+emb_adapter_name: emb
+gen_adapter_name: gen
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -36,13 +35,13 @@ low_memory: True
 
 #Training data args
 global_batch_size: 512
-mini_batch_size: 8
+mini_batch_size: 4
 max_seq_length: 2048
 num_train_epochs: 1
-max_steps: 1000
+max_steps: 8000
 num_positive_samples: 1
-num_negative_samples: 8 
-topk_neg: 4
+num_negative_samples: 1
+topk_neg: 1
 
 # Gradcache settings
 use_gc: True
