@@ -4,13 +4,14 @@ import torch
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoConfig, BatchEncoding
 
-from genc.model.genc import MistralEmbeddingLM
+from genc.model.genc import LlamaEmbeddingLM, MistralEmbeddingLM, PhiEmbeddingLM
 
 
 class GenCLM(torch.nn.Module):
     def __init__(
             self,
             model_weights_name_or_path: str,
+            pretrained_type: str = 'Mistral',
             use_bidirectional: bool = False,
             normalized: bool = True,
             pooling_method: str = "mean",
@@ -31,7 +32,16 @@ class GenCLM(torch.nn.Module):
             use_cache=False
         )
         model_args = [use_bidirectional, normalized, pooling_method]
-        self.model = MistralEmbeddingLM.from_pretrained(
+        if 'Meta-Llama' in pretrained_type:
+            model_class = LlamaEmbeddingLM
+        elif 'Mistral' in pretrained_type:
+            model_class = MistralEmbeddingLM
+        elif 'phi-1_5' in pretrained_type:
+            model_class = PhiEmbeddingLM
+        else:
+            raise ValueError(f"Model type not recognized: {model_weights_name_or_path}")
+        
+        self.model = model_class.from_pretrained(
             model_weights_name_or_path,
             *model_args,
             config=config,

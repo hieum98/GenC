@@ -10,10 +10,10 @@
 #SBATCH --cpus-per-task=10
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-12
+#SBATCH --array=0-11%12
 
 # FEWSHOT: 0-9%10
-# ALLDS: 0-69
+# ALLDS: 0-69%70
 
 ######################
 ### Set enviroment ###
@@ -143,7 +143,7 @@ export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # For each dataset in ALLDS run the evaluation script
-echo "Running evaluation for MTEB $DS"
+echo "Running evaluation for MTEB on $DS"
 python -m eval.eval_mteb \
 --model_name_or_path checkpoint/7b-esft_simcse-100 \
 --attn_implementation sdpa \
@@ -155,3 +155,13 @@ python -m eval.eval_mteb \
 --pipeline_parallel \
 --pooling_method mean
 
+python -m eval.eval_mteb \
+--model_name_or_path checkpoint/7b-esft_simcse-50 \
+--attn_implementation sdpa \
+--use_bidirectional \
+--task_names $DS \
+--instruction_set medi2 \
+--instruction_format genclm \
+--batch_size 64 \
+--pipeline_parallel \
+--pooling_method mean

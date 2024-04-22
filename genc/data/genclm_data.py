@@ -74,8 +74,8 @@ class GenCLMDataset(DataModule):
             ds = load_dataset('json', data_files=file, split='train')
             ds = ds.filter(
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-                num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-                load_from_cache_file=False,
+                cache_file_name=f"{file}.cache",
+                num_proc=20,
             )
             train_ds.append(ds)
         
@@ -88,8 +88,8 @@ class GenCLMDataset(DataModule):
             ds = load_dataset('json', data_files=file, split='train')
             ds = ds.filter(
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-                num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-                load_from_cache_file=True,
+                cache_file_name=f"{file}.cache",
+                num_proc=20,
             )
             train_ds.append(ds)
         

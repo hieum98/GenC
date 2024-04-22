@@ -22,7 +22,7 @@ from bitsandbytes.nn import Linear4bit, Params4bit
 from peft import LoraConfig, TaskType
 from fastcore.parallel import parallel
 
-from genc.model.genc import MistralEmbeddingLM
+from genc.model.genc import LlamaEmbeddingLM, MistralEmbeddingLM, PhiEmbeddingLM
 from genc.model.lora_genc import LoRaGenc
 from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos
 from genc.trainer.trainer_utils import find_all_linear_names
@@ -97,8 +97,17 @@ def load_model(
     # Create the model
     # Specify model args
     model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, tokenizer]
+    if 'Meta-Llama' in model_weights_name_or_path:
+        model_class = LlamaEmbeddingLM
+    elif 'Mistral' in model_weights_name_or_path:
+        model_class = MistralEmbeddingLM
+    elif 'microsoft/phi-1_5' in model_weights_name_or_path:
+        model_class = PhiEmbeddingLM
+    else:
+        raise ValueError(f"Model type not recognized: {model_weights_name_or_path}")
+    
     if quantization is False:
-        model = MistralEmbeddingLM.from_pretrained(
+        model = model_class.from_pretrained(
             model_weights_name_or_path,
             *model_args,
             config=config,
@@ -114,7 +123,7 @@ def load_model(
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=torch.bfloat16 if torch_dtype in ["auto", None] else torch_dtype,
             )
-        model: PreTrainedModel = MistralEmbeddingLM.from_pretrained(
+        model: PreTrainedModel = model_class.from_pretrained(
                 model_weights_name_or_path,
                 *model_args,
                 config=config,
@@ -128,7 +137,7 @@ def load_model(
             config._attn_implementation = kwargs["attn_implementation"]
         # load model on meta device without calling init and replace nn.Linear with Linear4bit
         with init_empty_weights():
-            model: MistralEmbeddingLM = MistralEmbeddingLM._from_config(
+            model = model_class._from_config(
                 config,
                 use_bidirectional=use_bidirectional,
                 normalized=normalized,

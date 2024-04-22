@@ -1,11 +1,11 @@
 # Data args
-data_name: genclm
-data_dir: /home/hieum/uonlp/LLM_Emb/dataset/GenCLM
+data_name: simcse
+data_dir: /home/hieum/uonlp/LLM_Emb/dataset/simcse/data
 val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: mistralai/Mistral-7B-v0.1
+model_name_or_path: meta-llama/Meta-Llama-3-8B
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True
@@ -14,8 +14,8 @@ loss_gen_type: mixed
 temperature: 0.07
 # Lora setting
 use_lora: True
-emb_adapter_name: emb
-gen_adapter_name: gen
+emb_adapter_name: emb_simcse
+gen_adapter_name: gen_simcse
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -35,17 +35,17 @@ low_memory: True
 
 #Training data args
 global_batch_size: 512
-mini_batch_size: 4
+mini_batch_size: 1
 max_seq_length: 2048
 num_train_epochs: 1
-max_steps: 8000
+max_steps: 2000
 num_positive_samples: 1
 num_negative_samples: 1
 topk_neg: 1
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 16
+gc_mini_batch_size: 4
 
 # Objective args
 prompt_loss_weight: 0.0

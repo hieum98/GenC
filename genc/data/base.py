@@ -141,9 +141,7 @@ class DPOCDataset(Dataset):
             add_special_tokens=False,
             )["input_ids"]
         if len(prompt_ids) > len(model_inputs["input_ids"]):
-            print(f"Prompt: {prompt}")
-            print(f"Response: {example}")
-            raise ValueError("Prompt is longer than the model input")
+            raise ValueError("Prompt is longer than the model input\n Prompt: {prompt}\n Response: {example}")
         prompt_len = len(prompt_ids)
         loss_weight_mask = np.ones(len(model_inputs["labels"]), dtype=np.float32)
         len_prompt = prompt_len

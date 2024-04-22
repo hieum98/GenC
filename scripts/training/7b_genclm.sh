@@ -4,8 +4,8 @@
 #SBATCH --ntasks-per-node=1    # This needs to match Fabric(devices=...)
 #SBATCH --gres=gpu:1           # Request N GPUs per machine
 #SBATCH --mem=100G    
-#SBATCH --constraint=gpu-80gb|gpu-40gb|h100
-#SBATCH --cpus-per-task=10
+#SBATCH --constraint=gpu-80gb|h100|gpu-40gb
+#SBATCH --cpus-per-task=5
 #SBATCH --job-name=genclm
 #SBATCH --partition=gpulong
 #SBATCH --account=uonlp
@@ -27,5 +27,11 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 # export NCCL_SOCKET_IFNAME=^docker0,lo
 
 # Run your training script
-srun python -m genc.main --config_file scripts/configs/fulldata.yaml --nodes 8 --devices 1 --mode esft --output_dir output/esft_7b
+srun python -m genc.main \
+    --config_file scripts/configs/fulldata.yaml \
+    --nodes 8 \
+    --devices 1 \
+    --mode esft \
+    --output_dir output/esft_mistral_7b
+    # --checkpoint_path output/simcse_esft_7b/checkpoints/step_200.ckpt
 

@@ -287,10 +287,10 @@ def get_table(models, task_list, limit_langs=[], skip_langs=[], name="table", no
     with open(f"{name}.txt", "w") as f:
         f.write(TABLE)
 
-get_table(MODELS, TASK_LIST_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clf", no_lang_col=True)
-get_table(MODELS, TASK_LIST_CLUSTERING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clu", no_lang_col=True)
-get_table(MODELS, TASK_LIST_PAIR_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_pclf", no_lang_col=True)
-get_table(MODELS, TASK_LIST_RERANKING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_rrk", no_lang_col=True)
-get_table(MODELS, TASK_LIST_RETRIEVAL, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_rtr", no_lang_col=True)
-get_table(MODELS, TASK_LIST_STS, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_sts", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clf", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_CLUSTERING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clu", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_PAIR_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_pclf", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_RERANKING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_rrk", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_RETRIEVAL, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_rtr", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_STS, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_sts", no_lang_col=True)
 get_table(MODELS, TASK_LIST_EN, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_en", no_lang_col=True)

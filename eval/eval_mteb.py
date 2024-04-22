@@ -862,7 +862,8 @@ NAME_TO_FUNC = {
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name_or_path', default="GritLM/GritLM-7B", type=str)
+    parser.add_argument('--model_name_or_path', type=str, required=True, help="Model name or path")
+    parser.add_argument('--pretrained_type', type=str, required=True, help="Mistral/Meta-Llama/phi-1_5")
     parser.add_argument('--attn_implementation', default='sdpa', type=str, help="eager/sdpa/flash_attention_2")
     parser.add_argument('--use_bidirectional', action='store_true', help="Use bidirectional attention")
     parser.add_argument('--task_types', default=None, help="Comma separated. Default is None i.e. running all tasks")
@@ -895,6 +896,7 @@ if __name__ == '__main__':
 
     model_kwargs = {
         "model_weights_name_or_path": args.model_name_or_path,
+        "pretrained_type": args.pretrained_type,
         "use_bidirectional": args.use_bidirectional,
         "normalized": False,
         "pooling_method": args.pooling_method,

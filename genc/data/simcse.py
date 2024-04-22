@@ -32,24 +32,11 @@ def get_dataloader(
     num_workers: int=4,
     seed: int=2708,
 ) -> DataLoader:
-    def filter_too_long_instructions(example, tokenizer, max_seq_length):
-        # Filter out super long examples to avoid tokenize taking forever
-        if not filter_too_long_example(example['query'][0], max_seq_length) \
-            or not example['query'][1] \
-            or not filter_too_long_example(example['query'][1], max_seq_length):
-            return False
-        for ex in example['pos'] + example['neg']:
-            if not filter_too_long_example(ex[0], max_seq_length) \
-                or not ex[1] \
-                or not filter_too_long_example(ex[1], max_seq_length):
-                return False
-        return True
     ds = load_dataset('json', data_files=data_files, split='train')
     if is_train:
         ds = ds.filter(
             lambda ex: filter_too_long_instructions(ex, tokenizer, max_seq_length),
-            num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-            load_from_cache_file=True,
+            num_proc=20,
         )
         if mode=='dpoc':
             ds = DPOCDataset(
@@ -140,8 +127,7 @@ class SimCSEDataset(DataModule):
         train_ds = load_dataset('json', data_files=self.train_files, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-            num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-            load_from_cache_file=False,
+            num_proc=20,
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
@@ -149,8 +135,7 @@ class SimCSEDataset(DataModule):
         train_ds = load_dataset('json', data_files=self.train_files, split='train')
         train_ds = train_ds.filter(
             lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-            num_proc=os.cpu_count()//2 if os.cpu_count() > 10 else 10,
-            load_from_cache_file=True,
+            num_proc=20,
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
 

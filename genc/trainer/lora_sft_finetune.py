@@ -224,7 +224,7 @@ def fit(
     refresh_sampler = False
     while iter_num < lr_max_steps:
         iter_num += 1
-        if iter_num < checkpoint_iter_num:
+        if iter_num <= checkpoint_iter_num:
             continue
 
         if refresh_sampler:
