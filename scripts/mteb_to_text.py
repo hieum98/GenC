@@ -149,8 +149,10 @@ TASK_LIST_NAMES = [
 ]
 
 MODELS = [
-    "7b-esft_simcse-50",
     "7b-esft_simcse-100",
+    "7b-esft_simcse-200",
+    "7b-esft_simcse-300",
+
 ]
 
 MODEL_TO_NAME = {
@@ -249,6 +251,7 @@ def get_rows(dataset, model_name, limit_langs=[], skip_langs=[]):
         rows.append([lang, main_metric, test_result_lang])
     if len(rows) == 0:
         print(f"Skipping {dataset} for {model_name}")
+        breakpoint()
     return rows
 
 
@@ -293,4 +296,5 @@ def get_table(models, task_list, limit_langs=[], skip_langs=[], name="table", no
 # get_table(MODELS, TASK_LIST_RERANKING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_rrk", no_lang_col=True)
 # get_table(MODELS, TASK_LIST_RETRIEVAL, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_rtr", no_lang_col=True)
 # get_table(MODELS, TASK_LIST_STS, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_sts", no_lang_col=True)
-get_table(MODELS, TASK_LIST_EN, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_en", no_lang_col=True)
+# get_table(MODELS, TASK_LIST_EN, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_en", no_lang_col=True)
+get_table(MODELS, QUICK_EVAL, limit_langs=["en", "en-en",'eng-Latn'], name="quick_mteb_en", no_lang_col=True)

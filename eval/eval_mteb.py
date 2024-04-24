@@ -10,49 +10,49 @@ from  genc.GenCLM import GenCLM
 
 
 SET_TO_TASK_TO_DS_TO_PROMPT = {
-    'medi2': {
+    'genclm': {
         "Classification": {
             'Banking77Classification': 'Represent the text for finding another one-sentence banking query with the same intent',
             'EmotionClassification': 'Represent the text for finding another one-sentence text with the same emotion',
-            'AmazonCounterfactualClassification': 'Represent the text to find another sentence with the same counterfactuality, e.g. sentences with "would", "wish", etc. should match with other sentences of that kind.',
+            'AmazonCounterfactualClassification': 'Represent the text to find another sentence with the same counterfactuality',
             'ImdbClassification': 'Represent the text for finding another one-sentence movie review with the same sentiment',
-            'MassiveIntentClassification': 'Represent the text for finding another text of a few words with the same intent',
-            'MassiveScenarioClassification': 'Represent the text for finding another text of a few words about the same scenario',
-            'MTOPDomainClassification': 'Represent the text for finding another text of a few words about the same domain',
-            'MTOPIntentClassification': 'Represent the text for finding another text of a few words with the same intent',
-            'ToxicConversationsClassification': 'Represent the text for finding another comment of up to a passage in length with the same level of toxicity (either toxic or not toxic)',
-            'AmazonPolarityClassification': 'Represent the review for finding another Amazon review with the same sentiment (positive / negative)',
+            'MassiveIntentClassification': 'Represent the text for finding another text with the same intent',
+            'MassiveScenarioClassification': 'Represent the text for finding another text about the same scenario',
+            'MTOPDomainClassification': 'Represent the text for finding another text about the same domain',
+            'MTOPIntentClassification': 'Represent the text for finding another text with the same intent',
+            'ToxicConversationsClassification': 'Represent the text for finding another comment with the same level of toxicity',
+            'AmazonPolarityClassification': 'Represent the review for finding another Amazon review with the same sentiment',
             'AmazonReviewsClassification': 'Represent the review for finding another Amazon review with the same rating',
-            'TweetSentimentExtractionClassification': 'Represent the tweet for finding another tweet with the same sentiment (positive / neutral / negative)',
+            'TweetSentimentExtractionClassification': 'Represent the tweet for finding another tweet with the same sentiment',
         },
         "Clustering": {
-            'ArxivClusteringP2P': 'Identify the main and secondary category of Arxiv papers based on the titles and abstracts',
-            'ArxivClusteringS2S': 'Identify the main and secondary category of Arxiv papers based on the titles',
-            'BiorxivClusteringP2P': 'Identify the main category of Biorxiv papers based on the titles and abstracts',
-            'BiorxivClusteringS2S': 'Identify the main category of Biorxiv papers based on the titles',
-            'MedrxivClusteringP2P': 'Identify the main category of Medrxiv papers based on the titles and abstracts',
-            'MedrxivClusteringS2S': 'Identify the main category of Medrxiv papers based on the titles',
-            'RedditClustering': 'Identify the topic or theme of Reddit posts based on the titles',
-            'RedditClusteringP2P': 'Identify the topic or theme of Reddit posts based on the titles and posts',
-            'StackExchangeClustering': 'Identify the topic or theme of StackExchange posts based on the titles',
-            'StackExchangeClusteringP2P': 'Identify the topic or theme of StackExchange posts based on the given paragraphs',
-            'TwentyNewsgroupsClustering': 'Identify the topic or theme of the given news articles',
+            'ArxivClusteringP2P': 'Represent the title and abstract of a paper to identify its category',
+            'ArxivClusteringS2S': 'Represent the title of a paper to identify its category',
+            'BiorxivClusteringP2P': 'Represent the title and abstract of a paper to identify its category',
+            'BiorxivClusteringS2S': 'Represent the title of a paper to identify its category',
+            'MedrxivClusteringP2P': 'Represent the title and abstract of a paper to identify its category',
+            'MedrxivClusteringS2S': 'Represent the title of a paper to identify its category',
+            'RedditClustering': 'Represent the titles to identify the topic or theme of Reddit posts',
+            'RedditClusteringP2P': 'Represent the titles and posts to identify the topic or theme of Reddit posts',
+            'StackExchangeClustering': 'Represent the titles to identify the topic or theme of StackExchange posts',
+            'StackExchangeClusteringP2P': 'Represent the given paragraphs to identify the topic or theme of StackExchange posts',
+            'TwentyNewsgroupsClustering': 'Represent news articles to identify their topic or theme.',
         },
         "PairClassification": {
-            'SprintDuplicateQuestions': 'Represent the question to be matched with another duplicate user question from the Sprint community forum',
-            'TwitterSemEval2015': 'Represent the tweet to find another tweet that is a paraphrase of it',
-            'TwitterURLCorpus': 'Represent the tweet to find another tweet that is a paraphrase of it',
+            'SprintDuplicateQuestions': 'Represent the question to be matched with another user question from the Sprint community forum',
+            'TwitterSemEval2015': 'Represent the tweet to find another similar tweet',
+            'TwitterURLCorpus': 'Represent the tweet to find another similar tweet',
         },
         'Reranking': {
             # Questions from AskUbuntu with manual annotations marking pairs of questions as similar or dissimilar.
             'AskUbuntuDupQuestions': {
-                'query': 'Represent the query to find a duplicate query on the AskUbuntu community forum',
-                'corpus': 'Represent the query to find a duplicate query on the AskUbuntu community forum',
+                'query': 'Represent the query to find a sematically similar query on the AskUbuntu community forum',
+                'corpus': 'Represent the query to find a sematically similar query on the AskUbuntu community forum',
             },
             # Stack Overflow Duplicate Questions Task for questions with the tags Java, JavaScript and Python, ranking questions as duplicates or not
             'StackOverflowDupQuestions': {
-                'query': 'Represent the query to find a duplicate query on the StackOverflow community forums',
-                'corpus': 'Represent the query to find a duplicate query on the StackOverflow community forums',
+                'query': 'Represent the query to find a sematically similar query on the StackOverflow community forums',
+                'corpus': 'Represent the query to find a sematically similar query on the StackOverflow community forums',
             },
             # Both are titles, e.g. "Beauty eMakeup: A Deep Makeup Transfer System" matches with "Makeup like a superstar: Deep Localized Makeup Transfer Network"
             'SciDocsRR': {
@@ -61,8 +61,8 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             },
             # E.g. "Taylor Swift Says Scooter Braun, Scott Borchetta Are Blocking Her From Playing Old Hits at AMAs" matches with "Author Jennine Capó Crucet responds after white college students burn her book" but not with "How to Make Buttermilk At Home With Just 2 Ingredients"
             'MindSmallReranking': {
-                'query': 'Represent the news headline to find another news headline that the same reader would enjoy',
-                'corpus': 'Represent the news headline to find another news headline that the same reader would enjoy',
+                'query': 'Represent the news headline to find another relevant news headline',
+                'corpus': 'Represent the news headline to find another relevant news headline',
             },
         },
         'Retrieval': {
@@ -74,7 +74,7 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             },
             # TREC-COVID [65] is an ad-hoc search challenge based on the CORD-19 dataset containing scientific articles related to the COVID-19 pandemic [69]. We include the July 16, 2020 version of CORD-19 dataset as corpus T and use the final cumulative judgements with query descriptions from the original task as queries Q.
             'TRECCOVID': {
-                'query': 'Represent the query on COVID-19 to find a scientific article about COVID-19 that adequately addresses the query',
+                'query': 'Represent the query to find a scientific article about COVID-19 that adequately addresses the query',
                 'corpus': 'Represent the scientific article about COVID-19 to find a user query that it adequately addresses'
             },
             ### Open-domain Question Answering (QA) ###
@@ -90,9 +90,9 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             # HotpotQA [76] contains multi-hop like questions which require reasoning over multiple paragraphs to find the correct answer. We include the original full-wiki task setting: utilizing processed Wikipedia passages as corpus T. We held out randomly sampled 5447 queries from training as our dev split. We use the original (paper) task’s development split as our test split Q.
             'HotpotQA': {
                 # Wikipedia Question
-                'query': 'Represent the multi-hop question to find a Wikipedia passage that answers it',
+                'query': 'Represent the question to find a Wikipedia passage that answers it',
                 # Wikipedia Articles
-                'corpus': 'Represent the Wikipedia passage to find a multi-hop question that it answers',
+                'corpus': 'Represent the Wikipedia passage to find a question that it answers',
             },
             # FiQA-2018 [44] Task 2 consists of opinion-based question-answering. We include financial data by crawling StackExchange posts under the Investment topic from 2009-2017 as our corpus T. We randomly sample out 500 and 648 queries Q from the original training split as dev and test splits.            
             'FiQA2018': {
@@ -868,7 +868,7 @@ def get_args():
     parser.add_argument('--use_bidirectional', action='store_true', help="Use bidirectional attention")
     parser.add_argument('--task_types', default=None, help="Comma separated. Default is None i.e. running all tasks")
     parser.add_argument('--task_names', default=None, help="Comma separated. Default is None i.e. running all tasks")
-    parser.add_argument('--instruction_set', default="medi2", type=str, help="Instructions to use")
+    parser.add_argument('--instruction_set', default="genclm", type=str, help="Instructions to use")
     parser.add_argument('--instruction_format', default="genclm", type=str, help="Formatting to use")
     parser.add_argument('--no_instruction', action='store_true', help="Do not use instructions")
     parser.add_argument('--batch_size', default=64, type=int)

@@ -4,16 +4,17 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=100G
-#SBATCH --constraint=gpu-40gb|gpu-80gb|gpu-20gb
+#SBATCH --constraint=gpu-40gb|gpu-80gb|h100
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=5
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-11%12
+#SBATCH --array=0-55
 
-# FEWSHOT: 0-9%10
-# ALLDS: 0-69%70
+# Quick eval: 0-11
+# FEWSHOT: 0-9
+# ALLDS: 0-55
 
 ######################
 ### Set enviroment ###
@@ -52,73 +53,68 @@ QUICK_EVAL=(
 )
 
 ALLDS=(
-AmazonCounterfactualClassification
-AmazonPolarityClassification
-AmazonReviewsClassification
-ArguAna
-ArxivClusteringP2P
-ArxivClusteringS2S
-AskUbuntuDupQuestions
-BIOSSES
-Banking77Classification
-BiorxivClusteringP2P
-BiorxivClusteringS2S
-CQADupstackAndroidRetrieval
-CQADupstackEnglishRetrieval
-CQADupstackGamingRetrieval
-CQADupstackGisRetrieval
-CQADupstackMathematicaRetrieval
-CQADupstackPhysicsRetrieval
-CQADupstackProgrammersRetrieval
-CQADupstackStatsRetrieval
-CQADupstackTexRetrieval
-CQADupstackUnixRetrieval
-CQADupstackWebmastersRetrieval
-CQADupstackWordpressRetrieval
-ClimateFEVER
-DBPedia
-EmotionClassification
-FEVER
-FiQA2018
-HotpotQA
-ImdbClassification
-MSMARCO
-MTOPDomainClassification
-MTOPIntentClassification
-MassiveIntentClassification
-MassiveScenarioClassification
-MedrxivClusteringP2P
-MedrxivClusteringS2S
-MindSmallReranking
-NFCorpus
-NQ
-QuoraRetrieval
-RedditClustering
-RedditClusteringP2P
-SCIDOCS
-SICK-R
-STS12
-STS13
-STS14
-STS15
-STS16
-STS17
-STS22
-STSBenchmark
-SciDocsRR
-SciFact
-SprintDuplicateQuestions
-StackExchangeClustering
-StackExchangeClusteringP2P
-StackOverflowDupQuestions
-SummEval
-TRECCOVID
-Touche2020
-ToxicConversationsClassification
-TweetSentimentExtractionClassification
-TwentyNewsgroupsClustering
-TwitterSemEval2015
-TwitterURLCorpus
+    "AmazonCounterfactualClassification"
+    "AmazonPolarityClassification"
+    "AmazonReviewsClassification"
+    "Banking77Classification"
+    "EmotionClassification"
+    "ImdbClassification"
+    "MassiveIntentClassification"
+    "MassiveScenarioClassification"
+    "MTOPDomainClassification"
+    "MTOPIntentClassification"
+    "ToxicConversationsClassification"
+    "TweetSentimentExtractionClassification"
+
+    "ArxivClusteringP2P"
+    "ArxivClusteringS2S"
+    "BiorxivClusteringP2P"
+    "BiorxivClusteringS2S"
+    "MedrxivClusteringP2P"
+    "MedrxivClusteringS2S"
+    "RedditClustering"
+    "RedditClusteringP2P"
+    "StackExchangeClustering"
+    "StackExchangeClusteringP2P"
+    "TwentyNewsgroupsClustering"
+
+    "SprintDuplicateQuestions"
+    "TwitterSemEval2015"
+    "TwitterURLCorpus"
+
+    "AskUbuntuDupQuestions"
+    "MindSmallReranking"
+    "SciDocsRR"
+    "StackOverflowDupQuestions"
+
+    "ArguAna"
+    "ClimateFEVER"
+    "CQADupstackTexRetrieval"
+    "DBPedia"
+    "FEVER"
+    "FiQA2018"
+    "HotpotQA"
+    "MSMARCO"
+    "NFCorpus"
+    "NQ"
+    "QuoraRetrieval"
+    "SCIDOCS"
+    "SciFact"
+    "Touche2020"
+    "TRECCOVID"
+
+    "BIOSSES"
+    "SICK-R"
+    "STS12"
+    "STS13"
+    "STS14"
+    "STS15"
+    "STS16"
+    "STS17"
+    "STS22"
+    "STSBenchmark"
+
+    "SummEval"
 )
 
 # Dataets for fewshot exps
@@ -137,7 +133,8 @@ TwitterURLCorpus
 # SummEval
 # )
 
-DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
+DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+# DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
@@ -145,23 +142,25 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
 python -m eval.eval_mteb \
---model_name_or_path checkpoint/7b-esft_simcse-100 \
---attn_implementation sdpa \
---use_bidirectional \
---task_names $DS \
---instruction_set medi2 \
---instruction_format genclm \
---batch_size 64 \
---pipeline_parallel \
---pooling_method mean
+    --model_name_or_path checkpoint/7b-esft_simcse-200 \
+    --pretrained_type Mistral \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 64 \
+    --pipeline_parallel \
+    --pooling_method mean
 
 python -m eval.eval_mteb \
---model_name_or_path checkpoint/7b-esft_simcse-50 \
---attn_implementation sdpa \
---use_bidirectional \
---task_names $DS \
---instruction_set medi2 \
---instruction_format genclm \
---batch_size 64 \
---pipeline_parallel \
---pooling_method mean
+    --model_name_or_path checkpoint/7b-esft_simcse-300 \
+    --pretrained_type Mistral \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 64 \
+    --pipeline_parallel \
+    --pooling_method mean
