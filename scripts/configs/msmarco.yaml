@@ -7,6 +7,7 @@ num_workers: 4
 
 # Model args
 model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+pretrained_type: mistral
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True

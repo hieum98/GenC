@@ -1,12 +1,13 @@
 # Data args
 data_name: msmarco
-data_dir: dataset/msmarco
+data_dir: /mnt/hieu/msmarco
 train_file: msmarco_hard.jsonl
 val_file: msmarco_test.jsonl
 num_workers: 4
 
 # Model args
 model_name_or_path: meta-llama/Meta-Llama-3-8B-Instruct
+pretrained_type: llama
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True
