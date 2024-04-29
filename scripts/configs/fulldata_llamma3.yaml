@@ -5,7 +5,7 @@ val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: meta-llama/Meta-Llama-3-8B
+model_name_or_path: meta-llama/Meta-Llama-3-8B-Instruct
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True

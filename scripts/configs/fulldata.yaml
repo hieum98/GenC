@@ -5,7 +5,7 @@ val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: mistralai/Mistral-7B-v0.1
+model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True
