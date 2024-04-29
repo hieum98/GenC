@@ -16,7 +16,7 @@ from genc.data.base import (
     EmbDataset,
     EmbCollator
     )
-from genc.data.utils import filter_too_long_example, filter_too_long_instructions
+from genc.data.utils import quick_filter_too_long_instructions
 
 def get_dataloader(
     data_files: Path,
@@ -35,7 +35,7 @@ def get_dataloader(
     ds = load_dataset('json', data_files=data_files, split='train')
     if is_train:
         ds = ds.filter(
-            lambda ex: filter_too_long_instructions(ex, tokenizer, max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, tokenizer, max_seq_length),
             num_proc=20,
             load_from_cache_file=True,
         )
@@ -122,12 +122,17 @@ class MSMARCODataset(DataModule):
         self.max_seq_length = 512 if max_seq_length is None else max_seq_length
     
     def prepare_data(self):
-        pass
+        train_ds = load_dataset('json', data_files=self.train_file, split='train')
+        train_ds = train_ds.filter(
+            lambda ex: quick_filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+            num_proc=20,
+        )
+        val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
     def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
-            lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
             num_proc=20,
             load_from_cache_file=True,
         )
