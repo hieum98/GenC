@@ -51,6 +51,10 @@ class ModelArguments:
         default=None,
         metadata={"help": "The path for reference model which is path to pretrained model or model identifier from huggingface.co/models"}
         )
+    pretrained_type: str = field(
+        default="llama",
+        metadata={"help": "The type of pretrained model. Should be one of ['llama', 'mistral', 'phi']"}
+        )
     use_bidirectional: bool = field(default=False, metadata={"help": "Whether to use bidirectional attention in compute encodings"})
     attn_implementation: str = field(default='sdpa', metadata={"help": "eager/sdpa/flash_attention_2"})
     normalized: bool = field(default=True, metadata={"help": "Whether to normalize the representations"})

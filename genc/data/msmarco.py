@@ -122,7 +122,12 @@ class MSMARCODataset(DataModule):
         self.max_seq_length = 512 if max_seq_length is None else max_seq_length
     
     def prepare_data(self):
-        pass
+        train_ds = load_dataset('json', data_files=self.train_file, split='train')
+        train_ds = train_ds.filter(
+            lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+            num_proc=20,
+        )
+        val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
     def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')

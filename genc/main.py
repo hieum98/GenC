@@ -105,6 +105,7 @@ def main(
     # Load the model and tokenizer
     model, tokenizer = load_model(
         model_weights_name_or_path=model_args.model_name_or_path,
+        pretrained_type=model_args.pretrained_type,
         use_bidirectional=model_args.use_bidirectional,
         normalized=model_args.normalized,
         pooling_method=model_args.pooling_method,
@@ -133,6 +134,7 @@ def main(
         assert model_args.ref_model_name_or_path is not None, "Reference model must be provided for EDPO training."
         ref_model, _ = load_model(
             model_weights_name_or_path=model_args.ref_model_name_or_path,
+            pretrained_type=model_args.pretrained_type,
             use_bidirectional=model_args.use_bidirectional,
             normalized=model_args.normalized,
             pooling_method=model_args.pooling_method,

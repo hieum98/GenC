@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 def load_model(
         model_weights_name_or_path: str,
+        pretrained_type: str,
         use_bidirectional: bool = False,
         normalized: bool = True,
         pooling_method: str = "mean",
@@ -97,14 +98,14 @@ def load_model(
     # Create the model
     # Specify model args
     model_args = [use_bidirectional, normalized, pooling_method, loss_gen_type, temperature, tokenizer]
-    if 'Meta-Llama' in model_weights_name_or_path:
+    if pretrained_type == 'llama':
         model_class = LlamaEmbeddingLM
-    elif 'Mistral' in model_weights_name_or_path:
+    elif pretrained_type == 'mistral':
         model_class = MistralEmbeddingLM
-    elif 'microsoft/phi-1_5' in model_weights_name_or_path:
+    elif pretrained_type == 'phi':
         model_class = PhiEmbeddingLM
     else:
-        raise ValueError(f"Model type not recognized: {model_weights_name_or_path}")
+        raise ValueError(f"Model type not recognized: {pretrained_type}")
     
     if quantization is False:
         model = model_class.from_pretrained(
