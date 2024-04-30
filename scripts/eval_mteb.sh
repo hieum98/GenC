@@ -3,14 +3,14 @@
 #SBATCH --account=uonlp
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
-#SBATCH --mem=100G
-#SBATCH --constraint=gpu-40gb|gpu-80gb|h100
+#SBATCH --mem=150G
+#SBATCH --constraint=gpu-80gb|h100|gpu-40gb
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
-#SBATCH --cpus-per-task=5
+#SBATCH --cpus-per-task=2
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-55
+#SBATCH --array=0-11
 
 # Quick eval: 0-11
 # FEWSHOT: 0-9
@@ -133,8 +133,12 @@ ALLDS=(
 # SummEval
 # )
 
-DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
-# DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
+REMAIN=(
+    "MindSmallReranking"
+)
+
+# DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
+DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
@@ -142,25 +146,30 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/7b-esft_simcse-200 \
-    --pretrained_type Mistral \
+    --model_name_or_path checkpoint/7b-esft_simcse-1100 \
+    --pretrained_type mistral \
     --attn_implementation sdpa \
     --use_bidirectional \
     --task_names $DS \
     --instruction_set genclm \
     --instruction_format genclm \
-    --batch_size 64 \
+    --batch_size 8 \
     --pipeline_parallel \
     --pooling_method mean
 
-python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/7b-esft_simcse-300 \
-    --pretrained_type Mistral \
-    --attn_implementation sdpa \
-    --use_bidirectional \
-    --task_names $DS \
-    --instruction_set genclm \
-    --instruction_format genclm \
-    --batch_size 64 \
-    --pipeline_parallel \
-    --pooling_method mean
+# python -m eval.eval_mteb \
+#     --model_name_or_path checkpoint/7b-esft-simcse-700 \
+#     --pretrained_type Mistral \
+#     --attn_implementation sdpa \
+#     --use_bidirectional \
+#     --task_names $DS \
+#     --instruction_set genclm \
+#     --instruction_format genclm \
+#     --batch_size 64 \
+#     --pipeline_parallel \
+#     --pooling_method mean
+
+rm /home/hieum/uonlp/LLM_Emb/mteb-$SLURM_JOB_ID.out
+rm /home/hieum/uonlp/LLM_Emb/mteb-$SLURM_JOB_ID.err
+
+

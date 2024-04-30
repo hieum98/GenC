@@ -7,10 +7,10 @@
 #SBATCH --constraint=gpu-80gb|h100|gpu-40gb
 #SBATCH --cpus-per-task=5
 #SBATCH --job-name=genclm
-#SBATCH --partition=gpulong
+#SBATCH --partition=preempt
 #SBATCH --account=uonlp
-#SBATCH --output=/home/hieum/uonlp/LLM_Emb/genclm-7b-simcse-%j.out
-#SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-7b-simcse-%j.err
+#SBATCH --output=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.out
+#SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.err
 
 # Activate conda environment
 source /home/hieum/.bashrc
@@ -28,10 +28,9 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # Run your training script
 srun python -m genc.main \
-    --config_file scripts/configs/fulldata.yaml \
+    --config_file scripts/configs/fulldata_phi1.5.yaml \
     --nodes 8 \
     --devices 1 \
     --mode esft \
-    --output_dir output/esft_mistral_7b
-    # --checkpoint_path output/simcse_esft_7b/checkpoints/step_200.ckpt
+    --output_dir output/esft_1.5b_instruct
 
