@@ -35,7 +35,7 @@ def get_dataloader(
     ds = load_dataset('json', data_files=data_files, split='train')
     if is_train:
         ds = ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, tokenizer, max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, max_seq_length),
             num_proc=20,
             load_from_cache_file=True,
         )
@@ -124,7 +124,7 @@ class MSMARCODataset(DataModule):
     def prepare_data(self):
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length),
             num_proc=20,
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
@@ -132,7 +132,7 @@ class MSMARCODataset(DataModule):
     def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length),
             num_proc=20,
             load_from_cache_file=True,
         )

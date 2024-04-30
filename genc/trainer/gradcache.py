@@ -311,9 +311,10 @@ class GradCache:
     def get_reps_only(
             self,
             *model_inputs,
+            chunksize: int=128,
             ):
         all_reps = []
-        model_inputs = [self.split_inputs(x, chunk_size) for x, chunk_size in zip(model_inputs, self.chunk_sizes)]
+        model_inputs = [self.split_inputs(x, chunksize) for x in model_inputs]
 
         for model, x in zip(self.models, model_inputs):
             model_reps, _ = self.forward_no_grad(model, x)
