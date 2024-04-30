@@ -165,9 +165,8 @@ def main(
         )
 
     # Config optimizer and scheduler
-    # Scale learning rate by batch size
-    bs = training_args.batch_size(fabric.world_size)
-    lr = training_args.learning_rate * sqrt(bs//32) 
+    # Scale learning rate by global batchsize
+    lr = training_args.learning_rate * sqrt(training_args.global_batch_size//512) 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=lr, 
