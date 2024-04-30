@@ -158,7 +158,7 @@ def compute_kl_loss(
     dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
     dual_score = torch.log_softmax(dual_score, dim=1) # [chunksize, 1 + topk_neg]    
     
-    kl = torch.nn.KLDivLoss(reduction="mean", log_target=True)
+    kl = torch.nn.KLDivLoss(reduction="batchmean")
     kl_loss = kl(dual_score, gen_score)
 
     return kl_loss
