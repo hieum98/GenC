@@ -29,6 +29,7 @@ class DataModule(LightningDataModule):
         num_negative_samples: int = 1,
         num_positive_samples: int = 1,
         prompt_loss_weight: float=0.02,
+        pretrained_type="",
     ) -> None:
         """All settings that can't be determined at the time of instantiation need to be passed through here
         before any dataloaders can be accessed.
@@ -42,6 +43,7 @@ class DataModule(LightningDataModule):
         self.num_positive_samples = num_positive_samples
         self.prompt_loss_weight = prompt_loss_weight
         self.max_seq_length = 512 if max_seq_length is None else max_seq_length
+        self.pretrained_type = pretrained_type
 
     def setup(self, stage: str="") -> None:
         pass
@@ -141,7 +143,7 @@ class DPOCDataset(Dataset):
             add_special_tokens=False,
             )["input_ids"]
         if len(prompt_ids) > len(model_inputs["input_ids"]):
-            raise ValueError("Prompt is longer than the model input\n Prompt: {prompt}\n Response: {example}")
+            raise ValueError(f"Prompt is longer than the model input\n Prompt: {prompt}\n Response: {example}")
         prompt_len = len(prompt_ids)
         loss_weight_mask = np.ones(len(model_inputs["labels"]), dtype=np.float32)
         len_prompt = prompt_len

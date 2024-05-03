@@ -67,8 +67,8 @@ def filter_too_long_instructions(example, tokenizer, max_seq_length):
             or not filter_too_long_example(_gen_example, max_seq_length):
             return False
     
-    len_q = len(tokenizer(emb_example)['input_ids'])
-    if len_q > max_seq_length-10:
+    len_q = len(tokenizer(emb_example, max_length=max_seq_length, truncation=True)['input_ids'])
+    if len_q >= max_seq_length:
         return False
     
     for ex in example['pos'] + example['neg']:
@@ -76,11 +76,11 @@ def filter_too_long_instructions(example, tokenizer, max_seq_length):
         emb_example = emb_example_format.format(prompt=ex[0], example=ex[1])
         gen_example = gen_example_format.format(prompt=f"{example['gen_prompt']}\n{example['query'][1]}", response=ex[1])
 
-        len_example = len(tokenizer(emb_example)['input_ids'])
-        gen_len_example = len(tokenizer(gen_example)['input_ids'])
+        len_example = len(tokenizer(emb_example, max_length=max_seq_length, truncation=True)['input_ids'])
+        gen_len_example = len(tokenizer(gen_example, max_length=max_seq_length, truncation=True)['input_ids'])
 
-        if len_example > max_seq_length:
+        if len_example >= max_seq_length:
             return False
-        if gen_len_example > max_seq_length:
+        if gen_len_example >= max_seq_length:
             return False
     return True

@@ -282,7 +282,7 @@ def fit(
             model.set_adapter(model_args.emb_adapter_name)
         with torch.no_grad():
             inputs = (model_inputs, other_kwargs)
-            reps = gc.get_reps_only(inputs, chunksize=128)
+            reps = gc.get_reps_only(inputs, chunksize=min(bs, 32))
 
         # Forward-backward pass for SFT and KL loss
         gen_model_inputs = {

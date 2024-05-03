@@ -16,7 +16,7 @@ from genc.data.base import (
     EmbDataset,
     EmbCollator
     )
-from genc.data.utils import filter_too_long_example, filter_too_long_instructions
+from genc.data.utils import filter_too_long_instructions, quick_filter_too_long_instructions
 
 
 @dataclass
@@ -57,10 +57,12 @@ class GenCLMDataset(DataModule):
             num_negative_samples: int = 1,
             num_positive_samples: int = 1,
             prompt_loss_weight: float=0.02,
+            pretrained_type="",
             ) -> None:
         self.world_size = world_size
         self.global_rank = global_rank
         self.tokenizer = tokenizer
+        self.pretrained_type = pretrained_type
         self.batch_size = batch_size
         self.global_batch_size = global_batch_size
         self.num_negative_samples = num_negative_samples
@@ -70,13 +72,19 @@ class GenCLMDataset(DataModule):
     
     def prepare_data(self):
         train_ds = []
+        # create cache dir 
+        Path(f"cache/{self.pretrained_type}").mkdir(parents=True, exist_ok=True)
+        print(f"Creating cache dir or loading from: cache/{self.pretrained_type}")
         for file in self.train_files:
             ds = load_dataset('json', data_files=file, split='train')
+            data_name = file.split('/')[-1].split('.')[0]
+            # Filter out super long examples to avoid tokenize taking forever and save to cache
             ds = ds.filter(
-                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-                cache_file_name=f"{file}.cache",
-                num_proc=20,
-            )
+                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length) if data_name!='msmarco' \
+                    else quick_filter_too_long_instructions(ex, self.max_seq_length),
+                num_proc=50,
+                cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
+            )         
             train_ds.append(ds)
         
         if self.val_file is not None:
@@ -86,10 +94,13 @@ class GenCLMDataset(DataModule):
         train_ds = []
         for file in self.train_files:
             ds = load_dataset('json', data_files=file, split='train')
+            data_name = file.split('/')[-1].split('.')[0]
             ds = ds.filter(
-                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length),
-                cache_file_name=f"{file}.cache",
-                num_proc=20,
+                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length) if data_name!='msmarco' \
+                    else quick_filter_too_long_instructions(ex, self.max_seq_length),
+                num_proc=50,
+                cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
+                load_from_cache_file=True
             )
             train_ds.append(ds)
         

@@ -66,7 +66,8 @@ def get_dataloaders(
     fabric: L.Fabric,
     data: DataModule,
     tokenizer: PreTrainedTokenizerBase,
-    training_args: TrainingArguments,       
+    training_args: TrainingArguments,
+    pretrained_type: str,       
 ):  
     data.connect(
         world_size=fabric.world_size,
@@ -78,6 +79,7 @@ def get_dataloaders(
         num_negative_samples=training_args.num_negative_samples,
         num_positive_samples=training_args.num_positive_samples,
         prompt_loss_weight=training_args.prompt_loss_weight,
+        pretrained_type=pretrained_type,
     )
     with fabric.rank_zero_first():
         data.prepare_data()
@@ -154,7 +156,7 @@ def main(
     model = fabric.setup_module(model)
 
     # Load the data
-    train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, training_args)
+    train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, training_args, model_args.pretrained_type)
     # Synchronize at the start
     fabric.barrier()
 

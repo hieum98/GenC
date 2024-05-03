@@ -360,7 +360,7 @@ def fit(
             model.set_adapter(model_args.emb_adapter_name)
         with torch.no_grad():
             inputs = (model_inputs, other_kwargs)
-            reps = gc.get_reps_only(inputs, chunksize=128)
+            reps = gc.get_reps_only(inputs, chunksize=min(bs, 32))
 
         # Forward-backward pass for DPO and KL
         emb_model_inputs, gen_model_inputs = online_hard_example_mining(

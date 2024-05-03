@@ -7,7 +7,7 @@
 #SBATCH --constraint=gpu-80gb|h100|gpu-40gb
 #SBATCH --cpus-per-task=5
 #SBATCH --job-name=genclm
-#SBATCH --partition=preempt
+#SBATCH --partition=gpulong
 #SBATCH --account=uonlp
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.err
