@@ -6,7 +6,7 @@ val_file: msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: microsoft/phi-1_5
+model_name_or_path: checkpoint/esft_msmarco_1.5b_instruct_gen
 pretrained_type: phi
 use_bidirectional: True
 attn_implementation: flash_attention_2

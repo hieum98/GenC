@@ -146,9 +146,9 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/7b-esft_simcse-1100 \
-    --pretrained_type mistral \
-    --attn_implementation sdpa \
+    --model_name_or_path checkpoint/esft_msmarco_1.5b_instruct_gen \
+    --pretrained_type phi \
+    --attn_implementation flash_attention_2 \
     --use_bidirectional \
     --task_names $DS \
     --instruction_set genclm \
@@ -158,14 +158,14 @@ python -m eval.eval_mteb \
     --pooling_method mean
 
 # python -m eval.eval_mteb \
-#     --model_name_or_path checkpoint/7b-esft-simcse-700 \
-#     --pretrained_type Mistral \
-#     --attn_implementation sdpa \
+#     --model_name_or_path checkpoint/esft_msmarco_1.5b_instruct_gen_emb \
+#     --pretrained_type phi \
+#     --attn_implementation flash_attention_2 \
 #     --use_bidirectional \
 #     --task_names $DS \
 #     --instruction_set genclm \
 #     --instruction_format genclm \
-#     --batch_size 64 \
+#     --batch_size 8 \
 #     --pipeline_parallel \
 #     --pooling_method mean
 

@@ -15,10 +15,8 @@ from transformers import (
     PreTrainedTokenizer,
 )
 from transformers.utils import hub, SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
-from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
+from transformers import AutoTokenizer, AutoConfig
 from accelerate import init_empty_weights
-from bitsandbytes.nn import Linear4bit, Params4bit
 from peft import LoraConfig, TaskType
 from fastcore.parallel import parallel
 
@@ -133,6 +131,7 @@ def load_model(
                 **kwargs,
             )
     else:
+        from bitsandbytes.nn import Linear4bit, Params4bit
         config.use_cache = False
         if "attn_implementation" in kwargs:
             config._attn_implementation = kwargs["attn_implementation"]

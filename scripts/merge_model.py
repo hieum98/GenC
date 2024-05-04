@@ -21,6 +21,7 @@ data_args, model_args, training_args, validation_args = parser.parse_yaml_file(y
 
 model, tokenizer = load_model(
         model_weights_name_or_path=model_args.model_name_or_path,
+        pretrained_type=model_args.pretrained_type,
         use_bidirectional=model_args.use_bidirectional,
         normalized=model_args.normalized,
         pooling_method=model_args.pooling_method,
@@ -51,8 +52,6 @@ if args.merge_type == 'emb':
     model = model.merge_and_unload(adapter_names=[model_args.emb_adapter_name], progressbar=True)
 elif args.merge_type == 'gen':
     model = model.merge_and_unload(adapter_names=[model_args.gen_adapter_name], progressbar=True)
-elif args.merge_type == 'both':
-    model = model.merge_and_unload(adapter_names=[model_args.emb_adapter_name, model_args.gen_adapter_name], progressbar=True)
 
 save_dir = args.output_dir
 model.save_pretrained(save_dir)

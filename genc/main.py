@@ -12,6 +12,8 @@ from lightning import seed_everything
 from lightning.fabric.strategies import FSDPStrategy
 from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
+from transformers.models.phi.modeling_phi import PhiDecoderLayer
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from genc.data.base import DataModule
 from genc.data.genclm_data import GenCLMDataset
@@ -50,6 +52,9 @@ def validate_and_correct_args(
         training_args.no_sync = True
     elif training_args.no_sync and gradient_accumulation_iters == 1:
         training_args.no_sync = False
+
+    if model_args.ref_model_name_or_path is None:
+        model_args.ref_model_name_or_path = model_args.model_name_or_path
 
     # Save the corrected args into the yaml file
     config_file = Path(training_args.output_dir) / "config.yaml"
@@ -133,7 +138,6 @@ def main(
     )
 
     if training_args.mode == 'edpo':
-        assert model_args.ref_model_name_or_path is not None, "Reference model must be provided for EDPO training."
         ref_model, _ = load_model(
             model_weights_name_or_path=model_args.ref_model_name_or_path,
             pretrained_type=model_args.pretrained_type,
@@ -306,11 +310,18 @@ def setup(
                 sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
             else:
                 raise ValueError("Invalid sharding strategy")
+            if model_args.pretrained_type == 'phi':
+                activation_checkpointing_policy = {PhiDecoderLayer}
+            elif model_args.pretrained_type == 'mistral':
+                activation_checkpointing_policy = {MistralDecoderLayer}
+            elif model_args.pretrained_type == 'llama':
+                activation_checkpointing_policy = {LlamaDecoderLayer}
+                
             strategy = FSDPStrategy(
                 cpu_offload=cpu_offload,
                 mixed_precision=mp_policy,
                 auto_wrap_policy=auto_wrap_policy,
-                activation_checkpointing_policy={MistralDecoderLayer},
+                activation_checkpointing_policy=activation_checkpointing_policy,
                 sharding_strategy=sharding_strategy,
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
                 state_dict_type="full",
