@@ -26,8 +26,6 @@ from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_e
 from genc.trainer.trainer_utils import find_all_linear_names
 from genc.trainer.loading_utils import load_and_quantize_parallel, n_loading_workers, replace_linear
 
-logger = logging.getLogger(__name__)
-
 def load_model(
         model_weights_name_or_path: str,
         pretrained_type: str,
@@ -65,7 +63,7 @@ def load_model(
             # StabilityLM specific fix
             tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
         else:
-            logger.warning("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+            print("Tokenizer does not have a pad token. We will use the bos token as pad token.")
             tokenizer.pad_token = tokenizer.bos_token
             tokenizer.pad_token_id = tokenizer.bos_token_id
     # Add special tokens into tokenizer
@@ -77,7 +75,7 @@ def load_model(
         tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
 
     # Load model
-    logger.info(f"Loading model from {model_weights_name_or_path}")
+    print(f"Loading model from {model_weights_name_or_path}")
     # Load model config
     if use_lora:
         config = AutoConfig.from_pretrained(
@@ -165,7 +163,7 @@ def load_model(
         param_count = sum((p.numel() for n,p in model.named_parameters()))
         n_workers = n_loading_workers(quant_method, param_count)
         if rank == 0:
-            logger.info(f"Using n_workers: {n_workers} for loading")
+            print(f"Using n_workers: {n_workers} for loading")
         start = time.time()
         for filename in tqdm(files, desc="Loading & Quantizing Model Shards", disable=rank!=0, position=0):
             weights = safetensors.torch.load_file(filename)
@@ -175,7 +173,7 @@ def load_model(
                      verbose=True, quant_method=quant_method)
 
         if rank == 0:
-            logger.info(f"Loaded model weights in {time.time()-start:.3f} seconds")
+            print(f"Loaded model weights in {time.time()-start:.3f} seconds")
         # cleanup any extra memory usage from parallel loading
         torch.cuda.empty_cache()
     print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
@@ -192,7 +190,7 @@ def load_model(
         assert emb_adapter_name is not None or gen_adapter_name is not None, "You must provide at least one adapter name"
 
         if lora_target_modules == ["all"]:
-            logger.warning("You provided 'all' as target modules, we will use all the model to which LoRA can be applied.")
+            print("You provided 'all' as target modules, we will use all the model to which LoRA can be applied.")
             lora_target_modules = find_all_linear_names(model, quantization=quantization)
         lora_config = LoraConfig(
             r=lora_r,
@@ -239,8 +237,8 @@ def load_model(
                 model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
     if rank==0:
-        logger.info({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})
-        logger.info({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)})
+        print({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})
+        print({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)})
     
     return model, tokenizer
 

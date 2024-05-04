@@ -56,6 +56,9 @@ def validate_and_correct_args(
     if model_args.ref_model_name_or_path is None:
         model_args.ref_model_name_or_path = model_args.model_name_or_path
 
+    if model_args.gen_adapter_name is None:
+        model_args.gen_adapter_name = model_args.emb_adapter_name
+
     # Save the corrected args into the yaml file
     config_file = Path(training_args.output_dir) / "config.yaml"
     config_file.parent.mkdir(parents=True, exist_ok=True)

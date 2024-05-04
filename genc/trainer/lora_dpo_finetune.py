@@ -239,6 +239,7 @@ def compute_dpo_loss(
         beta=training_args.dpo_beta,
     )
     dpo_losses = dpo_losses.mean()
+    return dpo_losses
 
 
 def fit(
@@ -416,7 +417,6 @@ def fit(
                     chunksize=chunksize,
                     training_args=training_args,
                 )
-
                 loss = loss_kl * training_args.kl_loss_weight  + dpo_losses * training_args.gen_loss_weight
                 # Scaling with gradient accumulation
                 loss = loss / gradient_accumulation_iters

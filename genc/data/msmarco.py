@@ -111,6 +111,7 @@ class MSMARCODataset(DataModule):
             num_negative_samples: int = 1,
             num_positive_samples: int = 1,
             prompt_loss_weight: float=0.02,
+            pretrained_type="",
             ) -> None:
         self.world_size = world_size
         self.global_rank = global_rank
