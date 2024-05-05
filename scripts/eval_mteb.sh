@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=150G
 #SBATCH --constraint=gpu-80gb|h100|gpu-40gb
-#SBATCH --partition=preempt
+#SBATCH --partition=gpulong
 #SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=2
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
@@ -134,7 +134,9 @@ ALLDS=(
 # )
 
 REMAIN=(
-    "MindSmallReranking"
+    "ArxivClusteringS2S"
+    "HotpotQA"
+    "MSMARCO"
 )
 
 # DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
@@ -146,7 +148,7 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/esft_msmarco_1.5b_instruct \
+    --model_name_or_path checkpoint/esft_1.5b_instruct \
     --pretrained_type phi \
     --attn_implementation flash_attention_2 \
     --use_bidirectional \

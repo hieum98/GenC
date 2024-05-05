@@ -89,6 +89,7 @@ def compute_kl_loss(
     chunksize: int,
     emb_adapter_name: str = "emb",
     gen_adapter_name: str = "gen",
+    temperature: float = 0.05,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -149,14 +150,14 @@ def compute_kl_loss(
             average_log_prob=True
         ) # [chunksize * (1 + topk_neg)]
         gen_logps = gen_logps.view(chunksize, -1)
-        gen_score = torch.softmax(gen_logps, dim=-1) # [chunksize, 1 + topk_neg]
+        gen_score = torch.softmax(gen_logps/temperature, dim=-1) # [chunksize, 1 + topk_neg]
     if isinstance(model, LoRaGenc):
         model.set_adapter(emb_adapter_name)
 
     query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
     passage_reps = emb_reps[chunksize:].reshape(chunksize, -1, emb_reps.size(-1)) # [chunksize, 1 + topk_neg, emb_dim]
     dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
-    dual_score = torch.log_softmax(dual_score, dim=1) # [chunksize, 1 + topk_neg]    
+    dual_score = torch.log_softmax(dual_score/temperature, dim=1) # [chunksize, 1 + topk_neg]    
     
     kl = torch.nn.KLDivLoss(reduction="batchmean")
     kl_loss = kl(dual_score, gen_score)
@@ -345,6 +346,7 @@ def fit(
                     chunksize=chunksize,
                     emb_adapter_name=model_args.emb_adapter_name,
                     gen_adapter_name=model_args.gen_adapter_name,
+                    temperature=model_args.temperature,
                 )
 
                 loss = sft_loss * training_args.gen_loss_weight + loss_kl * training_args.kl_loss_weight
