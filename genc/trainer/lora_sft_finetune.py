@@ -28,7 +28,7 @@ from genc.utils import compute_metrics
 @torch.no_grad()
 def validate(
     fabric: L.Fabric, 
-    model: Union[torch.nn.Module, PreTrainedModel, LoRaGenc],
+    model: LoRaGenc,
     val_dataloader: DataLoader,
     val_args: ValidationArgument,
     ):
@@ -83,7 +83,7 @@ def validate(
 
 
 def compute_kl_loss(
-    model: Union[torch.nn.Module, PreTrainedModel, LoRaGenc],
+    model: LoRaGenc,
     emb_input_chunk: Dict[str, torch.Tensor],
     gen_input_chunk: Dict[str, torch.Tensor],
     chunksize: int,
@@ -114,8 +114,7 @@ def compute_kl_loss(
         "prompt_length": emb_prompt_length,
         "is_emb": True,
     }
-    if isinstance(model, LoRaGenc):
-        model.set_adapter(emb_adapter_name)
+    model.set_adapter(emb_adapter_name)
     emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
     # Compute pair logits
     pair_input_ids = torch.cat([
@@ -139,8 +138,7 @@ def compute_kl_loss(
         "attention_mask": pair_attention_mask,
         "is_gen": True,
     }
-    if isinstance(model, LoRaGenc):
-        model.set_adapter(gen_adapter_name)
+    model.set_adapter(gen_adapter_name)
     with torch.no_grad():
         gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg)]
         gen_logps = get_batch_logps(
@@ -151,8 +149,7 @@ def compute_kl_loss(
         ) # [chunksize * (1 + topk_neg)]
         gen_logps = gen_logps.view(chunksize, -1)
         gen_score = torch.softmax(gen_logps/temperature, dim=-1) # [chunksize, 1 + topk_neg]
-    if isinstance(model, LoRaGenc):
-        model.set_adapter(emb_adapter_name)
+    model.set_adapter(emb_adapter_name)
 
     query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
     passage_reps = emb_reps[chunksize:].reshape(chunksize, -1, emb_reps.size(-1)) # [chunksize, 1 + topk_neg, emb_dim]
@@ -167,7 +164,7 @@ def compute_kl_loss(
 
 def fit(
     fabric: L.Fabric,
-    model: Union[torch.nn.Module, PreTrainedModel, LoRaGenc],
+    model: LoRaGenc,
     tokenizer: PreTrainedTokenizer,
     stage: Dict[str, Any],
     train_dataloader: DataLoader,
@@ -177,8 +174,7 @@ def fit(
     validation_args: ValidationArgument
 ):  
     # Active embedding tasks adapter
-    if isinstance(model, LoRaGenc):
-        model.set_adapter(model_args.emb_adapter_name)
+    model.set_adapter(model_args.emb_adapter_name)
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
     fabric.print(f"Validation metric: {val_metric}")
     fabric.barrier()
@@ -279,8 +275,7 @@ def fit(
         other_kwargs = {
             "is_emb": True,
         }
-        if isinstance(model, LoRaGenc):
-            model.set_adapter(model_args.emb_adapter_name)
+        model.set_adapter(model_args.emb_adapter_name)
         with torch.no_grad():
             inputs = (model_inputs, other_kwargs)
             reps = gc.get_reps_only(inputs, chunksize=min(bs, 32))
@@ -332,13 +327,11 @@ def fit(
                     "loss_weight_mask": gen_input_chunk["loss_weight_mask"],
                     "is_gen": True,
                 }
-                if isinstance(model, LoRaGenc):
-                    model.set_adapter(model_args.gen_adapter_name)
+                model.set_adapter(model_args.gen_adapter_name)
                 sft_loss = model(**chunk_inputs)['loss']
 
                 # KL loss
-                if isinstance(model, LoRaGenc):
-                    model.set_adapter(model_args.emb_adapter_name)
+                model.set_adapter(model_args.emb_adapter_name)
                 loss_kl = compute_kl_loss(
                     model=model,
                     emb_input_chunk=emb_input_chunk,
@@ -361,23 +354,11 @@ def fit(
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
         # Update the model with the accumulated gradients for the SFT and KL loss 
         # for embed_weigh and lm_head only uppdate the params corresponding to the trainable tokens
-        if isinstance(model, (LoRaGenc, PreTrainedModel)):
-            tmp_embed_tokens_weight = model.get_input_embeddings().weight.data
-            tmp_lm_head_weight = model.lm_head.weight.data
         optimizer.step()
-        trainable_tokens_ids = list(set(tokenizer.get_added_vocab().values()))
-        if isinstance(model, (LoRaGenc, PreTrainedModel)):
-            current_embed_tokens_weight = model.get_input_embeddings().weight.data # [vocab_size, emb_dim]
-            tmp_embed_tokens_weight[trainable_tokens_ids, :] = current_embed_tokens_weight[trainable_tokens_ids, :]
-            model.get_input_embeddings().weight.data = tmp_embed_tokens_weight
-            current_lm_head_weight = model.lm_head.weight.data # [hidden_size, vocab_size]
-            tmp_lm_head_weight[:, trainable_tokens_ids] = current_lm_head_weight[:, trainable_tokens_ids]
-            model.lm_head.weight.data = tmp_lm_head_weight
         optimizer.zero_grad()
         
         # Forward-backward pass for contrastive loss
-        if isinstance(model, LoRaGenc):
-            model.set_adapter(model_args.emb_adapter_name)
+        model.set_adapter(model_args.emb_adapter_name)
         if training_args.use_gc:
             no_sync_except_last = torch.distributed.is_initialized()
             inputs = (model_inputs, other_kwargs)
@@ -414,8 +395,7 @@ def fit(
             assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
             inner_iter_num = 0
-            if isinstance(model, LoRaGenc):
-                model.set_adapter(model_args.emb_adapter_name)
+            model.set_adapter(model_args.emb_adapter_name)
             for q_input_chunk, p_input_chunk, n_input_chunk in zip(split_input(query_inputs, chunksize), split_input(pos_inputs, chunksize), split_input(neg_inputs, chunksize)):
                 inner_iter_num += 1
                 is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
@@ -437,20 +417,7 @@ def fit(
 
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
-        # Update the model with the accumulated gradients for the contrastive loss
-        # for embed_weigh and lm_head only uppdate the params corresponding to the trainable tokens
-        if isinstance(model, (LoRaGenc, PreTrainedModel)):
-            tmp_embed_tokens_weight = model.get_input_embeddings().weight.data
-            tmp_lm_head_weight = model.lm_head.weight.data
         optimizer.step()
-        trainable_tokens_ids = list(set(tokenizer.get_added_vocab().values()))
-        if isinstance(model, (LoRaGenc, PreTrainedModel)):
-            current_embed_tokens_weight = model.get_input_embeddings().weight.data # [vocab_size, emb_dim]
-            tmp_embed_tokens_weight[trainable_tokens_ids, :] = current_embed_tokens_weight[trainable_tokens_ids, :]
-            model.get_input_embeddings().weight.data = tmp_embed_tokens_weight
-            current_lm_head_weight = model.lm_head.weight.data # [hidden_size, vocab_size]
-            tmp_lm_head_weight[:, trainable_tokens_ids] = current_lm_head_weight[:, trainable_tokens_ids]
-            model.lm_head.weight.data = tmp_lm_head_weight
         optimizer.zero_grad()
         
         if scheduler:
@@ -485,8 +452,7 @@ def fit(
 
         if iter_num % validation_args.interval == 0:
             t0 = time.perf_counter()
-            if isinstance(model, LoRaGenc):
-                model.set_adapter(model_args.emb_adapter_name)
+            model.set_adapter(model_args.emb_adapter_name)
             val_metrics = validate(
                 fabric=fabric,
                 model=model,  

@@ -17,63 +17,8 @@ from genc.data.base import (
     EmbCollator
     )
 from genc.data.utils import quick_filter_too_long_instructions
+from genc.special_tokens import SPECILA_TOKENS
 
-def get_dataloader(
-    data_files: Path,
-    tokenizer: PreTrainedTokenizerBase,
-    is_train: bool=True,
-    mode: str='dpoc',
-    max_seq_length: int=512,
-    num_negative_samples: int=1,
-    num_positive_samples: int=1,
-    prompt_loss_weight: float=0.02,
-    ignore_index: int=-100,
-    batch_size: int=1,
-    num_workers: int=4,
-    seed: int=2708,
-) -> DataLoader:
-    ds = load_dataset('json', data_files=data_files, split='train')
-    if is_train:
-        ds = ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, max_seq_length),
-            num_proc=20,
-            load_from_cache_file=True,
-        )
-        if mode=='dpoc':
-            ds = DPOCDataset(
-                data=ds,
-                tokenizer=tokenizer,
-                num_negative_samples=num_negative_samples,
-                num_positive_samples=num_positive_samples,
-                max_seq_length=max_seq_length,
-                prompt_loss_weight=prompt_loss_weight,
-            )
-            collator = DPOCCollator(tokenizer=tokenizer, label_pad_token_id=ignore_index)
-        else:
-            raise ValueError(f"Mode {mode} not supported.")
-    else:
-        ds = EmbDataset(
-            data=ds,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        )
-        collator = EmbCollator(tokenizer=tokenizer)
-
-    # For distributed training, use DistributedSampler
-    if torch.distributed.is_available() and torch.distributed.is_initialized() and is_train:
-        sampler = DistributedSampler(ds, seed=seed, shuffle=True)
-    else:
-        sampler = None
-
-    dataloader = DataLoader(
-        ds,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        collate_fn=collator,
-        sampler=sampler,
-    )
-    return dataloader
-    
 
 @dataclass
 class MSMARCODataset(DataModule):
@@ -121,11 +66,13 @@ class MSMARCODataset(DataModule):
         self.num_positive_samples = num_positive_samples
         self.prompt_loss_weight = prompt_loss_weight
         self.max_seq_length = 512 if max_seq_length is None else max_seq_length
+        self.pretrained_type = pretrained_type
+        self.special_tokens = SPECILA_TOKENS[pretrained_type]
     
     def prepare_data(self):
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
             num_proc=20,
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
@@ -133,7 +80,7 @@ class MSMARCODataset(DataModule):
     def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
         train_ds = train_ds.filter(
-            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length),
+            lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
             num_proc=20,
             load_from_cache_file=True,
         )

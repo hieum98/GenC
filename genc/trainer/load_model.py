@@ -22,7 +22,6 @@ from peft import LoraConfig, TaskType
 
 from genc.model.genc import LlamaEmbeddingLM, MistralEmbeddingLM, PhiEmbeddingLM
 from genc.model.lora_genc import LoRaGenc
-from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos
 from genc.trainer.trainer_utils import find_all_linear_names
 from genc.trainer.loading_utils import load_and_quantize_parallel, n_loading_workers, replace_linear
 
@@ -59,20 +58,9 @@ def load_model(
         trust_remote_code=True,
     )
     if tokenizer.pad_token_id is None:
-        if "<|padding|>" in tokenizer.get_vocab():
-            # StabilityLM specific fix
-            tokenizer.add_special_tokens({"pad_token": "<|padding|>"})
-        else:
-            print("Tokenizer does not have a pad token. We will use the bos token as pad token.")
-            tokenizer.pad_token = tokenizer.bos_token
-            tokenizer.pad_token_id = tokenizer.bos_token_id
-    # Add special tokens into tokenizer
-    additional_special_tokens = [base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos]
-    for item in additional_special_tokens:
-        if item in tokenizer.vocab:
-            additional_special_tokens.remove(item)
-    if len(additional_special_tokens) > 0:
-        tokenizer.add_special_tokens({'additional_special_tokens': additional_special_tokens})
+        print("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # Load model
     print(f"Loading model from {model_weights_name_or_path}")
@@ -179,11 +167,6 @@ def load_model(
         torch.cuda.empty_cache()
     print(f"Rank {rank}: Model created: {torch.cuda.memory_reserved(local_rank)/2**30:.3f} GiB")
 
-    if len(additional_special_tokens) > 0:
-        model.resize_token_embeddings(len(tokenizer))
-        config.vocab_size += len(additional_special_tokens)
-        model.config.vocab_size = len(tokenizer)
-
     # Load LoRA weights
     if use_lora:
         # PEFT will move quant_state to meta device, so this method prevents that
@@ -200,7 +183,7 @@ def load_model(
             bias="none",
             task_type=TaskType.CAUSAL_LM,
             target_modules=lora_target_modules,
-            modules_to_save = ["lm_head", "embed_tokens"],
+            modules_to_save = [],
             inference_mode=inference,
         )
         if emb_adapter_name is not None:

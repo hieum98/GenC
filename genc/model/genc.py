@@ -666,14 +666,6 @@ class PhiEmbeddingLM(PhiForCausalLM):
         Returns:
             hidden_state: [b, d]
         """
-        # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
-        # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
-        # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device)
-        # inputs_embeds = self.model.embed_tokens(input_ids)
-        # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1)) # [b, n, d]
-        # non_trainable_inputs_embeds = inputs_embeds.clone().detach()
-        # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
-        
         # Get the hidden states
         kwargs = {'input_ids': input_ids, 
                   'attention_mask': attention_mask,
@@ -761,14 +753,6 @@ class PhiEmbeddingLM(PhiForCausalLM):
         }
 
         if is_gen:
-            # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
-            # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
-            # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device) # [b, n]
-            # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, self.config.hidden_size) # [b, n, d]
-            # inputs_embeds = self.model.embed_tokens(input_ids)
-            # non_trainable_inputs_embeds = inputs_embeds.clone().detach() # [b, n, d]
-            # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
-
             gen_kwargs = {
                 "return_dict": return_dict,
                 "position_ids": position_ids,
@@ -784,12 +768,6 @@ class PhiEmbeddingLM(PhiForCausalLM):
                 **gen_kwargs
             )
             logits = gen_outputs.logits # [b, n, vocab_size]
-            # mask = torch.zeros_like(logits)
-            # added_tokens_ids = list(set(self.tokenizer.get_added_vocab().values()))
-            # mask[:, :, added_tokens_ids] = 1
-            # non_trainable_logits = logits.clone().detach()
-            # logits = logits * mask + (1 - mask) * non_trainable_logits
-
             # Map all properties from the gen_outputs to the output
             for k, v in gen_outputs.items():
                 output[k] = v

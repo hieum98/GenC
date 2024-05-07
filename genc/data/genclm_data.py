@@ -17,6 +17,7 @@ from genc.data.base import (
     EmbCollator
     )
 from genc.data.utils import filter_too_long_instructions, quick_filter_too_long_instructions
+from genc.special_tokens import SPECILA_TOKENS
 
 
 @dataclass
@@ -69,6 +70,7 @@ class GenCLMDataset(DataModule):
         self.num_positive_samples = num_positive_samples
         self.prompt_loss_weight = prompt_loss_weight
         self.max_seq_length = -1 if max_seq_length is None else max_seq_length
+        self.special_tokens = SPECILA_TOKENS[pretrained_type]
     
     def prepare_data(self):
         train_ds = []
@@ -80,8 +82,8 @@ class GenCLMDataset(DataModule):
             data_name = file.split('/')[-1].split('.')[0]
             # Filter out super long examples to avoid tokenize taking forever and save to cache
             ds = ds.filter(
-                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length) if data_name!='msmarco' \
-                    else quick_filter_too_long_instructions(ex, self.max_seq_length),
+                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length, self.special_tokens) if data_name!='msmarco' \
+                    else quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
                 num_proc=50,
                 cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
             )         
@@ -96,8 +98,8 @@ class GenCLMDataset(DataModule):
             ds = load_dataset('json', data_files=file, split='train')
             data_name = file.split('/')[-1].split('.')[0]
             ds = ds.filter(
-                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length) if data_name!='msmarco' \
-                    else quick_filter_too_long_instructions(ex, self.max_seq_length),
+                lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length, self.special_tokens) if data_name!='msmarco' \
+                    else quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
                 num_proc=50,
                 cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
                 load_from_cache_file=True
@@ -114,6 +116,7 @@ class GenCLMDataset(DataModule):
             num_positive_samples=self.num_positive_samples,
             max_seq_length=self.max_seq_length,
             prompt_loss_weight=self.prompt_loss_weight,
+            special_tokens=self.special_tokens,
         )
         
         if self.val_file is not None:
@@ -121,6 +124,7 @@ class GenCLMDataset(DataModule):
                 data=val_ds,
                 tokenizer=self.tokenizer,
                 max_seq_length=self.max_seq_length,
+                special_tokens=self.special_tokens,
             )
     
     def train_dataloader(self) -> DataLoader:

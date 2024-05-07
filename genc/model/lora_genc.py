@@ -302,6 +302,16 @@ class LoRaGenc(torch.nn.Module):
             if any([n in name for n in orther_modules_to_train]):
                 param.requires_grad = True
 
+    def disable_adapter(self):
+        for module in self.model.modules():
+            if isinstance(module, LoraLayer):
+                module.disable_adapters()
+    
+    def enable_adapter(self):
+        for module in self.model.modules():
+            if isinstance(module, LoraLayer):
+                module.enable_adapters()
+
     def add_adapter(self, adapter_name: str, peft_config: LoraConfig):
         try:
             self.lora_config[adapter_name] = peft_config

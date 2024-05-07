@@ -13,7 +13,7 @@ from lightning import LightningDataModule
 from transformers import PreTrainedTokenizerBase, BatchEncoding
 import datasets
 
-from genc import special_tokens
+from genc.special_tokens import SPECILA_TOKENS
 
 
 class DataModule(LightningDataModule):
@@ -44,6 +44,7 @@ class DataModule(LightningDataModule):
         self.prompt_loss_weight = prompt_loss_weight
         self.max_seq_length = 512 if max_seq_length is None else max_seq_length
         self.pretrained_type = pretrained_type
+        self.special_tokens = SPECILA_TOKENS[pretrained_type]
 
     def setup(self, stage: str="") -> None:
         pass
@@ -62,13 +63,7 @@ class DPOCDataset(Dataset):
             num_positive_samples: int,
             max_seq_length: int=512,
             prompt_loss_weight: float=0.02,
-            base_bos: str = special_tokens.base_bos,
-            user_bos: str = special_tokens.user_bos,
-            user_eos: str = special_tokens.user_eos,
-            embed_bos: str = special_tokens.embed_bos,
-            embed_eos: str = special_tokens.embed_eos,
-            assistant_bos: str = special_tokens.assistant_bos,
-            assistant_eos: str = special_tokens.assistant_eos,
+            special_tokens: Dict[str, str]={},
             ) -> None:
         self.data = data
         self.tokenizer = tokenizer
@@ -77,10 +72,15 @@ class DPOCDataset(Dataset):
         self.max_seq_length = max_seq_length
         self.prompt_loss_weight = prompt_loss_weight
         # This is only apply for 1-turn dialogues
-        self.emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
-        self.emb_example_format = self.emb_prompt_format + "{example}" + embed_eos
-        self.gen_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + assistant_bos
-        self.gen_example_format = self.gen_prompt_format + "{response}" + assistant_eos
+        bos = special_tokens.get("bos", "")
+        user_bos = special_tokens.get("user_bos", "")
+        eos = special_tokens.get("eos", "")
+        eot = special_tokens.get("eot", "")
+        assistant_bos = special_tokens.get("assistant_bos", "")
+        self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
+        self.emb_example_format = self.emb_prompt_format + "{example}" + eos
+        self.gen_prompt_format = bos + user_bos + "{prompt}" + eot + assistant_bos
+        self.gen_example_format = self.gen_prompt_format + "{response}" + eot + eos
 
     def __len__(self) -> int:
         return len(self.data)
@@ -203,13 +203,7 @@ class MultipleDPOCDataset(DPOCDataset):
             num_positive_samples: int,
             max_seq_length: int=512,
             prompt_loss_weight: float=0.02,
-            base_bos: str = special_tokens.base_bos,
-            user_bos: str = special_tokens.user_bos,
-            user_eos: str = special_tokens.user_eos,
-            embed_bos: str = special_tokens.embed_bos,
-            embed_eos: str = special_tokens.embed_eos,
-            assistant_bos: str = special_tokens.assistant_bos,
-            assistant_eos: str = special_tokens.assistant_eos,
+            special_tokens: Dict[str, str]={},
             ) -> None:
         full_data = datasets.concatenate_datasets(data)
         self.each_data_sizes = [len(d) for d in data]
@@ -220,13 +214,7 @@ class MultipleDPOCDataset(DPOCDataset):
             num_positive_samples=num_positive_samples,
             max_seq_length=max_seq_length,
             prompt_loss_weight=prompt_loss_weight,
-            base_bos=base_bos,
-            user_bos=user_bos,
-            user_eos=user_eos,
-            embed_bos=embed_bos,
-            embed_eos=embed_eos,
-            assistant_bos=assistant_bos,
-            assistant_eos=assistant_eos,
+            special_tokens=special_tokens,
         )
 
 
@@ -482,17 +470,16 @@ class EmbDataset(Dataset):
             data: datasets.Dataset,
             tokenizer: PreTrainedTokenizerBase,
             max_seq_length: int=512,
-            base_bos: str = special_tokens.base_bos,
-            user_bos: str = special_tokens.user_bos,
-            user_eos: str = special_tokens.user_eos,
-            embed_bos: str = special_tokens.embed_bos,
-            embed_eos: str = special_tokens.embed_eos,
+            special_tokens: Dict[str, str]={},
             ) -> None:
         self.data = data
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
-        self.emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
-        self.emb_example_format = self.emb_prompt_format + "{example}" + embed_eos
+        bos = special_tokens.get("bos", "")
+        user_bos = special_tokens.get("user_bos", "")
+        eos = special_tokens.get("eos", "")
+        self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
+        self.emb_example_format = self.emb_prompt_format + "{example}" + eos
     
     def __len__(self) -> int:
         return len(self.data)

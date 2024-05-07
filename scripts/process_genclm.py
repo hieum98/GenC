@@ -71,7 +71,6 @@ if __name__=='__main__':
         col_names = data.column_names
         col_names_to_remove = [col for col in col_names if col not in ['gen_prompt', 'query', 'pos', 'neg']]
         data = data.remove_columns(col_names_to_remove)
-        breakpoint()
         data.to_json(f'/home/hieum/uonlp/LLM_Emb/dataset/GenCLM_v2/processed/{file_name}.jsonl')
 
 
