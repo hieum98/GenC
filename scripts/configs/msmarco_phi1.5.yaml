@@ -35,7 +35,7 @@ no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 8
+global_batch_size: 576
 mini_batch_size: 2
 max_seq_length: 2048
 num_train_epochs: 1

@@ -10,8 +10,8 @@ SPECILA_TOKENS ={
     'mistral':{
         'bos': '<s>',
         'user_bos': '[INST]',
-        'eot': '[/INST]',
-        'assistant_bos': '',
+        'eot': '',
+        'assistant_bos': '[/INST]',
         'eos': '</s>'
     },
     'phi':{

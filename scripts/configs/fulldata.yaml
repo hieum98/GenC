@@ -1,7 +1,7 @@
 # Data args
 data_name: genclm
-data_dir: /scratch/project_462000558/peter/hieu/LLM_Emb/dataset/GenCLM_v2
-val_file: /scratch/project_462000558/peter/hieu/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
+data_dir: dataset/GenCLM_v2
+val_file: dataset/msmarco/msmarco_test.jsonl
 num_workers: 8
 
 # Model args

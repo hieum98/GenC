@@ -1,6 +1,6 @@
 # Data args
 data_name: msmarco
-data_dir: /scratch/project_462000558/peter/hieu/LLM_Emb/dataset/msmarco
+data_dir: dataset/msmarco
 train_file: msmarco_hard.jsonl
 val_file: msmarco_test.jsonl
 num_workers: 4

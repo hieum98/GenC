@@ -78,7 +78,7 @@ class DPOCDataset(Dataset):
         eot = special_tokens.get("eot", "")
         assistant_bos = special_tokens.get("assistant_bos", "")
         self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
-        self.emb_example_format = self.emb_prompt_format + "{example}" + eos
+        self.emb_example_format = self.emb_prompt_format + "{example}" + eot + eos
         self.gen_prompt_format = bos + user_bos + "{prompt}" + eot + assistant_bos
         self.gen_example_format = self.gen_prompt_format + "{response}" + eot + eos
 
