@@ -12,18 +12,18 @@ from  genc.GenCLM import GenCLM
 SET_TO_TASK_TO_DS_TO_PROMPT = {
     'genclm': {
         "Classification": {
-            'Banking77Classification': 'Represent the text for finding another one-sentence banking query with the same intent',
-            'EmotionClassification': 'Represent the text for finding another one-sentence text with the same emotion',
-            'AmazonCounterfactualClassification': 'Represent the text to find another sentence with the same counterfactuality',
-            'ImdbClassification': 'Represent the text for finding another one-sentence movie review with the same sentiment',
-            'MassiveIntentClassification': 'Represent the text for finding another text with the same intent',
-            'MassiveScenarioClassification': 'Represent the text for finding another text about the same scenario',
-            'MTOPDomainClassification': 'Represent the text for finding another text about the same domain',
-            'MTOPIntentClassification': 'Represent the text for finding another text with the same intent',
-            'ToxicConversationsClassification': 'Represent the text for finding another comment with the same level of toxicity',
-            'AmazonPolarityClassification': 'Represent the review for finding another Amazon review with the same sentiment',
-            'AmazonReviewsClassification': 'Represent the review for finding another Amazon review with the same rating',
-            'TweetSentimentExtractionClassification': 'Represent the tweet for finding another tweet with the same sentiment',
+            'Banking77Classification': 'Given a online banking query, find the corresponding intents',
+            'EmotionClassification': 'Classify the emotion expressed in the given Twitter message into one of the six emotions: anger, fear, joy, love, sadness, and surprise',
+            'AmazonCounterfactualClassification': 'Classify a given Amazon customer review text as either counterfactual or not-counterfactual',
+            'ImdbClassification': 'Classify the sentiment expressed in the given movie review text from the IMDB dataset',
+            'MassiveIntentClassification': 'Given a user utterance as query, find the user intents',
+            'MassiveScenarioClassification': 'Given a user utterance as query, find the user scenarios',
+            'MTOPDomainClassification': 'Classify the intent domain of the given utterance in task-oriented conversation',
+            'MTOPIntentClassification': 'Classify the intent of the given utterance in task-oriented conversation',
+            'ToxicConversationsClassification': 'Classify the given comments as either toxic or not toxic',
+            'AmazonPolarityClassification': 'Classify Amazon reviews into positive or negative sentimen',
+            'AmazonReviewsClassification': 'Classify the given Amazon review into its appropriate rating category',
+            'TweetSentimentExtractionClassification': 'Classify the sentiment of a given tweet as either positive, negative, or neutral',
         },
         "Clustering": {
             'ArxivClusteringP2P': 'Represent the title and abstract of a paper to identify its category',
@@ -39,7 +39,7 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             'TwentyNewsgroupsClustering': 'Represent news articles to identify their topic or theme.',
         },
         "PairClassification": {
-            'SprintDuplicateQuestions': 'Represent the question to be matched with another user question from the Sprint community forum',
+            'SprintDuplicateQuestions': 'Retrieve duplicate questions from Sprint forum',
             'TwitterSemEval2015': 'Represent the tweet to find another similar tweet',
             'TwitterURLCorpus': 'Represent the tweet to find another similar tweet',
         },
@@ -61,8 +61,8 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             },
             # E.g. "Taylor Swift Says Scooter Braun, Scott Borchetta Are Blocking Her From Playing Old Hits at AMAs" matches with "Author Jennine Capó Crucet responds after white college students burn her book" but not with "How to Make Buttermilk At Home With Just 2 Ingredients"
             'MindSmallReranking': {
-                'query': 'Represent the news headline to find another relevant news headline',
-                'corpus': 'Represent the news headline to find another relevant news headline',
+                'query': 'Represent the news query for retrieving relevant articles.',
+                'corpus': 'Represent the news article.',
             },
         },
         'Retrieval': {
@@ -74,12 +74,12 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             },
             # TREC-COVID [65] is an ad-hoc search challenge based on the CORD-19 dataset containing scientific articles related to the COVID-19 pandemic [69]. We include the July 16, 2020 version of CORD-19 dataset as corpus T and use the final cumulative judgements with query descriptions from the original task as queries Q.
             'TRECCOVID': {
-                'query': 'Represent the query to find a scientific article about COVID-19 that adequately addresses the query',
-                'corpus': 'Represent the scientific article about COVID-19 to find a user query that it adequately addresses'
+                'query': 'Represent the query on COVID-19 to retrieve documents that answer the query',
+                'corpus': 'Represent the scientific article about COVID-19'
             },
             ### Open-domain Question Answering (QA) ###
             'MSMARCO': {
-                'query': 'Represent the web search query to find a passage that adequately addresses it',
+                'query': 'Represent the web search query to find a passage that addresses it',
                 'corpus': 'Represent the passage for finding a search query that it addresses',
             },
             # Natural Questions [34] contains Google search queries and documents with paragraphs and answer spans within Wikipedia articles. We did not use the NQ version from ReQA [1] as it focused on queries having a short answer. As a result, we parsed the HTML of the original NQ dataset and include more complex development queries that often require a longer passage as answer compared to ReQA. We filtered out queries without an answer, or having a table as an answer, or with conflicting Wikipedia pages. We retain 2,681,468 passages as our corpus T and 3452 test queries Q from the original dataset.
@@ -90,9 +90,9 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             # HotpotQA [76] contains multi-hop like questions which require reasoning over multiple paragraphs to find the correct answer. We include the original full-wiki task setting: utilizing processed Wikipedia passages as corpus T. We held out randomly sampled 5447 queries from training as our dev split. We use the original (paper) task’s development split as our test split Q.
             'HotpotQA': {
                 # Wikipedia Question
-                'query': 'Represent the question to find a Wikipedia passage that answers it',
+                'query': 'Represent the question to find documents that can help answer the question',
                 # Wikipedia Articles
-                'corpus': 'Represent the Wikipedia passage to find a question that it answers',
+                'corpus': 'Represent the document to find a question that it relates to',
             },
             # FiQA-2018 [44] Task 2 consists of opinion-based question-answering. We include financial data by crawling StackExchange posts under the Investment topic from 2009-2017 as our corpus T. We randomly sample out 500 and 648 queries Q from the original training split as dev and test splits.            
             'FiQA2018': {
@@ -116,63 +116,19 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             # Example doc: I want to send files to android tablet with a application from PC. - I can send files directly to tablet (2.3 android OS) PC see it as a external usb drive. - But i can't send files to tablet (4.2 android OS), because PC see it as a portable media player.(MTP) - How can i fix this problem ? - How can show my device as a external drive? my application that sent files written via Delphi.
             # Example doc title: How can show android tablet as a external storage to PC?
             'CQADupstackTexRetrieval': {
-                'query': 'Represent a question to find answers',
-                'corpus': 'Represent an answer to retriever question',
-            },
-            'CQADupstackWebmastersRetrieval': {
-                'query': 'Represent a user question to find answers from the Webmasters StackExchange forum',
-                'corpus': 'Represent an answers to find a user question from the Webmasters StackExchange forum',
-            },
-            'CQADupstackEnglishRetrieval': {
-                'query': 'Represent the English question to find answer: ',
-                'corpus': 'Represent the English answer to find questions: ',
-            },
-            'CQADupstackGamingRetrieval': {
-                'query': 'Represent a user question to find an answer from the Gaming StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Gaming StackExchange forum',
-            },
-            'CQADupstackGisRetrieval': {
-                'query': 'Represent a user question to find an answer from the Gis StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Gis StackExchange forum',
-            },
-            'CQADupstackUnixRetrieval': {
-                'query': 'Represent a user question to find an answer from the Unix StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Unix StackExchange forum',
-            },
-            'CQADupstackMathematicaRetrieval': {
-                'query': 'Represent a user question to find an answer from the Mathematica StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Mathematica StackExchange forum',
-            },
-            'CQADupstackStatsRetrieval': {
-                'query': 'Represent a user question to find an answer from the Stats StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Stats StackExchange forum',
-            },
-            'CQADupstackPhysicsRetrieval': {
-                'query': 'Represent a user question to find an answer from the Physics StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Physics StackExchange forum',
-            },
-            'CQADupstackProgrammersRetrieval': {
-                'query': 'Represent a user question to find an answer from the Programmers StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Programmers StackExchange forum',
-            },
-            'CQADupstackAndroidRetrieval': {
-                'query': 'Represent a user question to find an answer from the Android StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Android StackExchange forum',
-            },
-            'CQADupstackWordpressRetrieval': {
-                'query': 'Represent a user question to find an answer from the Wordpress StackExchange forum',
-                'corpus': 'Represent an answer to find a question from the Wordpress StackExchange forum',
+                'query': 'Represent a question to find detailed question descriptions from Stackexchange that are duplicates to the given question',
+                'corpus': 'Represent a question to find detailed question descriptions from Stackexchange that are duplicates to the given question',
             },
             # Quora Duplicate Questions dataset identifies whether two questions are duplicates. Quora originally released containing 404,290 question pairs. We add transitive closures to the original dataset. Further, we split it into train, dev, and test sets with a ratio of about 85%, 5% and 10% of the original pairs. We remove all overlaps between the splits and ensure that a question in one split of the dataset does not appear in any other split to mitigate the transductive classification problem [27]. We achieve 522,931 unique queries as our corpus T and 5,000 dev and 10,000 test queries Q respectively
             'QuoraRetrieval': {
-                'query': 'Represent the Quora question to find another short similar question on Quora',
-                'corpus': 'Represent the Quora question to find another short simtlar question on Quora',
+                'query': 'Represent the question to find another similar question on Quora',
+                'corpus': 'Represent the question to find another simtlar question on Quora',
             },
             ### Entity Retrieval ###
             # DBPedia-Entity-v2 [21] is an established entity retrieval dataset. It contains a set of heterogeneous entity-bearing queries Q containing named entities, IR style keywords, and natural language queries. The task involves retrieving entities from the English part of DBpedia corpus T from October 2015. We randomly sample out 67 queries from the test split as our dev set.
             'DBPedia': {
-                'query': 'Represent the Wikipedia questions to retrieve a supporting document: ',
-                'corpus': 'Represent the Wikipedia documents for retrieval Wikipedia questions: ',
+                'query': 'Represent the query to find relevant entity descriptions from DBPedia',
+                'corpus': 'Represent the entity descriptions from DBPedia',
             },
             ### Citation Prediction ###
             # SCIDOCS [9] contains a corpus T of 30K held-out pool of scientific papers. We consider the direct-citations (1 out of 7 tasks mentioned in the original paper) as the best suited task for retrieval evaluation in BEIR. The task includes 1k papers as queries Q with 5 relevant papers and 25 (randomly selected) uncited papers for each query.
@@ -183,20 +139,20 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             ### Fact Checking ###
             # FEVER [60] The Fact Extraction and VERification dataset is collected to facilitate the automatic fact checking. We utilize the original paper splits as queries Q and retrieve evidences from the pre-processed Wikipedia Abstracts (June 2017 dump) as our corpus T.
             'FEVER': {
-                'query': 'Represent the claim to find a Wikipedia abstract to support it',
+                'query': 'Represent the claim about to find documents that support or refute the claim',
                 # Wikipedia Articles
-                'corpus': 'Represent the Wikipedia abstract to find a claim that it supports',
+                'corpus': 'Represent the documents to find a claim that it supports or refute',
             },
             'ClimateFEVER': {
                 # Climate-based Claim
-                'query': 'Represent the climate-based claim to find a Wikipedia abstract to support it',
+                'query': 'Represent the claim about climate change to find documents that support or refute the claim',
                 # Wikipedia Articles
-                'corpus': 'Represent the Wikipedia abstract to find a climate-related claim that it supports',
+                'corpus': 'Represent the documents to find a claim about climate change that it supports or refute',
             },
             # SciFact [68] verifies scientific claims using evidence from the research literature containing scientific paper abstracts. We use the original publicly available dev split from the task containing 300 queries as our test queries Q, and include all documents from the original dataset as our corpus T.
             'SciFact': {
-                'query': 'Represent the scientific claim to find a paper abstract from PubMed to support it',
-                'corpus': 'Represent the scientific paper abstract from PubMed to find a claim that it supports',
+                'query': 'Represent the scientific claim to find a documents to support it',
+                'corpus': 'Represent the scientific documents to find a claim that it supports',
             },
         },
         'STS': {
@@ -219,492 +175,6 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             'SummEval': 'Represent the summary to find another semantically similar summary of the same news article',
         },        
     },
-    'instructor-xl': {
-        "Classification": {
-            'Banking77Classification': 'Represent the bank77 purposes for retrieving its bank intent: ',
-            'EmotionClassification':  'Represent the amazon emotion sentence for classifying the emotion: ',
-            'AmazonCounterfactualClassification': 'Represent Daily casual counter-sentences for categorization as correct-sentences or counter-sentences: ',
-            'ImdbClassification': 'Represent a review sentence for classifying emotion as positive or negative: ',
-            'MassiveIntentClassification':'Represent the sentence for categorizing its task intent as qa_maths, takeaway_order, audio_volume_other, recommendation_movies, iot_cleaning, qa_stock, or recommendation_locations: ',
-            'MassiveScenarioClassification': "represent an ms sentence for retrieving its intent: ",
-            'MTOPDomainClassification': 'represent a MTO sentence to retrieve the task intention: ',
-            'MTOPIntentClassification': 'Represent an mto sentence for retrieving its behind task intention: ',
-            'ToxicConversationsClassification': 'Represent a toxicity comment for classifying its toxicity as toxic or non-toxic: ',
-            'AmazonPolarityClassification': 'Represent the sentiment comment for retrieving a duplicate sentence: ',
-            'AmazonReviewsClassification': 'Represent an amazon review sentence to find the emoation; ',
-            'TweetSentimentExtractionClassification': 'Represent Daily-life spoken sentences for categorization; Input: ',
-        },
-        "Clustering": {
-            'TwentyNewsgroupsClustering': 'Represent the news comment for clustering; ',
-            'BiorxivClusteringS2S': 'Represent the biological statement for retrieval; ',
-            'MedrxivClusteringS2S': 'Represent the Biological statement for clustering biological statements: ',
-            'ArxivClusteringP2P': 'Represent the science passage for retrieval: ',
-            'ArxivClusteringS2S': 'Represent the Science statements for retrieval: ',
-            'BiorxivClusteringP2P': 'Represent the Biological passage for retrieval: ',
-            'MedrxivClusteringP2P': 'Represent the Biological paragraph for retrieval: ',
-            'RedditClustering': 'represent the Reddit community title: ',
-            'RedditClusteringP2P': 'represent a Reddit community passage: ',
-            'StackExchangeClustering': 'Represent a question for retrieval: ',
-            'StackExchangeClusteringP2P': 'Represent the question and answer passage for retrieving relevant question and answer passages: ',
-        },
-        "PairClassification": {
-            'TwitterSemEval2015': 'Represent the twitter post for retrieving comments: ',
-            'TwitterURLCorpus': 'represent a Twitter posts for retrieval: ',
-            'SprintDuplicateQuestions': 'represent the Sprint questions for retrieving relevant posts, ',
-        },
-        'Reranking': {
-            'AskUbuntuDupQuestions': {
-                'query': 'Represent the Ubuntu question to retrieve a duplicate question: ',
-                'corpus': 'Represent the Ubuntu question: ',
-            },
-            'StackOverflowDupQuestions': {
-                'query': 'Represent the StackOverflow question: ',
-                'corpus': 'Represent the StackOverflow question: ',
-            },
-            'SciDocsRR': {
-                'query': 'Represent the Science question: ',
-                'corpus': 'Represent the Science document: '
-            },
-            'MindSmallReranking': {
-                'query': 'Represent the news query for retrieving articles: ',
-                'corpus': 'Represent the news article for retrieval: ',
-            },
-        },
-        'Retrieval': {
-            'ClimateFEVER': {
-                'query': 'Represent the Climate question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'HotpotQA': {
-                'query': 'Represent the Wikipedia question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'FEVER': {
-                'query': 'Represent the fact for retrieving supporting evidence: ',
-                'corpus': 'Represent the evidence for retrieval: ',
-            },
-            'MSMARCO': {
-                'query': 'Represent the question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'DBPedia': {
-                'query': 'Represent the Wikipedia questions to retrieve a supporting document: ',
-                'corpus': 'Represent the Wikipedia documents for retrieval: ',
-            },
-            'NQ': {
-                'query': 'Represent the Wikipedia question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'QuoraRetrieval': {
-                'query': 'Represent the Quora question to retrieve question: ',
-                'corpus': 'Represent the Quora question to retrieve question: ',
-            },
-            'SCIDOCS': {
-                'query': 'Represent a Science question for retrieving supporting papers: ',
-                'corpus': 'Represent the Science paper: ',
-            },
-            'TRECCOVID': {
-                'query': 'Represent the Coronavirus questions to retrieve a supporting document: ',
-                'corpus': 'Represent the Coronavirus documents for retrieval: ',
-            },
-            'Touche2020': {
-                'query': 'Represent questions: ',
-                'corpus': 'Represent arguments: ',
-            },
-            'SciFact': {
-                'query': 'Represent the Scientific queries for retrieving a supporting passage: ',
-                'corpus': 'represent the scientific paragraph for retrieval: ',
-            },
-            'NFCorpus': {
-                'query': 'Represent the nutrition facts to retrieve Public medical articles: ',
-                'corpus': 'Represent the Public medical articles for retrieval: ',
-            },
-            'ArguAna': {
-                'query': 'Represent Debating conversations to retrieve a counter-argument: ',
-                'corpus': 'Represent counter-arguments: ',
-            },
-            'CQADupstackTexRetrieval': {
-                'query': 'Represent the question for retrieving answers: ',
-                'corpus': 'Represent the answer for retrieval: ',
-            },
-            'CQADupstackWebmastersRetrieval': {
-                'query': 'Represent the Webmaster question for retrieving answers: ',
-                'corpus': 'Represent the Webmaster answer: ',
-            },
-            'CQADupstackEnglishRetrieval': {
-                'query': 'Represent the English question for retrieving documents: ',
-                'corpus': 'Represent the English answer for retrieval: ',
-            },
-            'CQADupstackGamingRetrieval': {
-                'query': 'Represent the Gaming question for retrieving answers: ',
-                'corpus': 'Represent the Gaming answer for retrieval: ',
-            },
-            'CQADupstackGisRetrieval': {
-                'query': 'Represent the Gis question for retrieving answers: ',
-                'corpus': 'Represent the Gis answer for retrieval: ',
-            },
-            'CQADupstackUnixRetrieval': {
-                'query': 'Represent the Unix questions to retrieve a supporting answer: ',
-                'corpus': 'Represent the Unix answers for retrieval: ',
-            },
-            'CQADupstackMathematicaRetrieval': {
-                'query': 'Represent the Mathematical question for retrieving answers: ',
-                'corpus': 'Represent the Mathematical answer for retrieval: ',
-            },
-            'CQADupstackStatsRetrieval': {
-                'query': 'Represent the Statistical question for retrieving answers: ',
-                'corpus': 'Represent the Statistical answer for retrieval: ',
-            },
-            'CQADupstackPhysicsRetrieval': {
-                'query': 'Represent the Physics question for retrieving answers: ',
-                'corpus': 'Represent the Physics answer for retrieval: ',
-            },
-            'CQADupstackProgrammersRetrieval': {
-                'query': 'Represent the Programming question for retrieving answers: ',
-                'corpus': 'Represent the Programming answer for retrieval: ',
-            },
-            'CQADupstackAndroidRetrieval': {
-                'query': 'Represent the Android question for retrieving answers: ',
-                'corpus': 'Represent the Android answer for retrieval: ',
-            },
-            'CQADupstackWordpressRetrieval': {
-                'query': 'Represent the Wordpress question for retrieving answers: ',
-                'corpus': 'Represent the Wordpress answer for retrieval: ',
-            },
-            'FiQA2018': {
-                'query': 'Represent the finance questions to retrieve a supporting answer: ',
-                'corpus': 'Represent the finance answers for retrieval: ',
-            },
-        },        
-        'STS': {
-            'STS12': 'represent texts, ',
-            'STS13': 'represent a casual post, ',
-            'STS14': 'Represent a post; ',
-            'STS15': 'Represent a posts,,, ',
-            'STS16': 'Represent posts: ',
-            'STS17': 'Represent a statement, ',
-            'STS22': 'represent the statement: ',
-            'BIOSSES': 'represent the Biological statement: ',
-            'SICK-R': 'Represent a post: ',
-            'STSBenchmark': 'represent posts, ',
-        },
-        'Summarization': {
-            'SummEval': 'Represent the news statement for retrieval: ',
-        },
-    },
-    'instructor-base': {
-        'STS': {
-            'STS12': 'Represent the statement, ',
-            'STS13': 'represent the statement, ',
-            'STS14': 'Represent the statement, ',
-            'STS15': 'Represent the post, ',
-            'STS16': 'Represent the post: ',
-            'STS17': 'Represent the sentence for classification: ',
-            'STS22': 'represent the statement: ',
-            'BIOSSES': 'Represent the Bio-medical statement: ',
-            'SICK-R': 'Represent the statement: ',
-            'STSBenchmark': 'represent the statement: ',
-        },
-        'Retrieval': {
-            'ClimateFEVER': {
-                'query': 'Represent the Climate question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'HotpotQA': {
-                'query': 'Represent the Wikipedia question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'FEVER': {
-                'query': 'Represent the fact for retrieving supporting evidence: ',
-                'corpus': 'Represent the evidence for retrieval: ',
-            },
-            'MSMARCO': {
-                'query': 'Represent the question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'DBPedia': {
-                'query': 'Represent the Wikipedia sentence for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'NQ': {
-                'query': 'Represent the Wikipedia question for retrieving supporting documents: ',
-                'corpus': 'Represent the document for retrieval: ',
-            },
-            'QuoraRetrieval': {
-                'query': 'Represent the Quora question for retrieving duplicate questions: ',
-                'corpus': 'Represent the Quora question for retrieving duplicate questions: ',
-            },
-            'SCIDOCS': {
-                'query': 'Represent a Science question for retrieving supporting papers: ',
-                'corpus': 'Represent the Science paper: ',
-            },
-            'TRECCOVID': {
-                'query': 'Represent the Coronavirus question for retrieving supporting documents: ',
-                'corpus': 'Represent the Coronavirus document for retrieval: ',
-            },
-            'Touche2020': {
-                'query': 'Represent a question: ',
-                'corpus': 'Represent an argument: ',
-            },
-            'SciFact': {
-                'query': 'Represent a Scientific query for retrieving a supporting passage; ',
-                'corpus': 'represent the Scientific passage for retrieval; ',
-            },
-            'NFCorpus': {
-                'query': 'Represent the Medicine question for retrieving a relevant document: ',
-                'corpus': 'Represent the medical document for retrieval: ',
-            },
-            'ArguAna': {
-                'query': 'Represent the Debate argument for retrieving a counter-argument: ',
-                'corpus': 'Represent the Counter debate argument: ',
-            },
-            'CQADupstackTexRetrieval': {
-                'query': 'Represent the question for retrieving answers: ',
-                'corpus': 'Represent the answer for retrieval: ',
-            },
-            'CQADupstackWebmastersRetrieval': {
-                'query': 'Represent the Webmaster question for retrieving answers: ',
-                'corpus': 'Represent the Webmaster answer: ',
-            },
-            'CQADupstackEnglishRetrieval':  {
-                'query': 'Represent the English question for retrieving documents: ',
-                'corpus': 'Represent the English answer for retrieval: ',
-            },
-            'CQADupstackGamingRetrieval': {
-                'query': 'Represent the Gaming question for retrieving answers: ',
-                'corpus': 'Represent the Gaming answer for retrieval: ',
-            },
-            'CQADupstackGisRetrieval': {
-                'query': 'Represent the Gis question for retrieving answers: ',
-                'corpus': 'Represent the Gis answer for retrieval: ',
-            },
-            'CQADupstackUnixRetrieval': {
-                'query': 'Represent the Unix question for retrieving answers: ',
-                'corpus': 'Represent the Unix answer for retrieval: ',
-            },
-            'CQADupstackMathematicaRetrieval': {
-                'query': 'Represent the Mathematical question for retrieving answers: ',
-                'corpus': 'Represent the Mathematical answer for retrieval: ',
-            },
-            'CQADupstackStatsRetrieval': {
-                'query': 'Represent the Statistical question for retrieving answers: ',
-                'corpus': 'Represent the Statistical answer for retrieval: ',
-            },
-            'CQADupstackPhysicsRetrieval': {
-                'query': 'Represent the Physics question for retrieving answers: ',
-                'corpus': 'Represent the Physics answer for retrieval: ',
-            },
-            'CQADupstackProgrammersRetrieval': {
-                'query': 'Represent the Programming question for retrieving answers: ',
-                'corpus': 'Represent the Programming answer for retrieval: ',
-            },
-            'CQADupstackAndroidRetrieval': {
-                'query': 'Represent the Android question for retrieving answers: ',
-                'corpus': 'Represent the Android answer for retrieval: ',
-            },
-            'CQADupstackWordpressRetrieval': {
-                'query': 'Represent the Wordpress question for retrieving answers: ',
-                'corpus': 'Represent the Wordpress answer for retrieval: ',
-            },
-            'FiQA2018': {
-                'query': 'Represent the finance question for retrieving the supporting answers: ',
-                'corpus': 'Represent the finance answer for retrieval: ',
-            },
-        },
-    },
-    'bge-large-en-v1.5': {
-        'Retrieval': {
-            'SciFact': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'FiQA2018': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'NFCorpus': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'SCIDOCS': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'TRECCOVID': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'Touche2020': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-            'DBPedia': {
-                'query': 'Represent this sentence for searching relevant passages: ',
-                'corpus': '',
-            },
-        }
-    },
-    'e5-mistral-7b-instruct': {
-        "Classification":{
-            "AmazonCounterfactualClassification":"Instruct: Classify a given Amazon customer review text as either counterfactual or not-counterfactual\nQuery: ",
-            "AmazonPolarityClassification":"Instruct: Classify Amazon reviews into positive or negative sentiment\nQuery: ",
-            "AmazonReviewsClassification":"Instruct: Classify the given Amazon review into its appropriate rating category\nQuery: ",
-            "Banking77Classification":"Instruct: Given a online banking query, find the corresponding intents\nQuery: ",
-            "EmotionClassification":"Instruct: Classify the emotion expressed in the given Twitter message into one of the six emotions: anger, fear, joy, love, sadness, and surprise\nQuery: ",
-            "ImdbClassification":"Instruct: Classify the sentiment expressed in the given movie review text from the IMDB dataset\nQuery: ",
-            "MassiveIntentClassification":"Instruct: Given a user utterance as query, find the user intents\nQuery: ",
-            "MassiveScenarioClassification":"Instruct: Given a user utterance as query, find the user scenarios\nQuery: ",
-            "MTOPDomainClassification":"Instruct: Classify the intent domain of the given utterance in task-oriented conversation\nQuery: ",
-            "MTOPIntentClassification":"Instruct: Classify the intent of the given utterance in task-oriented conversation\nQuery: ",
-            "ToxicConversationsClassification":"Instruct: Classify the given comments as either toxic or not toxic\nQuery: ",
-            "TweetSentimentExtractionClassification":"Instruct: Classify the sentiment of a given tweet as either positive, negative, or neutral\nQuery: "
-        },
-        "Clustering":{
-            "ArxivClusteringP2P":"Instruct: Identify the main and secondary category of Arxiv papers based on the titles and abstracts\nQuery: ",
-            "ArxivClusteringS2S":"Instruct: Identify the main and secondary category of Arxiv papers based on the titles\nQuery: ",
-            "BiorxivClusteringP2P":"Instruct: Identify the main category of Biorxiv papers based on the titles and abstracts\nQuery: ",
-            "BiorxivClusteringS2S":"Instruct: Identify the main category of Biorxiv papers based on the titles\nQuery: ",
-            "MedrxivClusteringP2P":"Instruct: Identify the main category of Medrxiv papers based on the titles and abstracts\nQuery: ",
-            "MedrxivClusteringS2S":"Instruct: Identify the main category of Medrxiv papers based on the titles\nQuery: ",
-            "RedditClustering":"Instruct: Identify the topic or theme of Reddit posts based on the titles\nQuery: ",
-            "RedditClusteringP2P":"Instruct: Identify the topic or theme of Reddit posts based on the titles and posts\nQuery: ",
-            "StackExchangeClustering":"Instruct: Identify the topic or theme of StackExchange posts based on the titles\nQuery: ",
-            "StackExchangeClusteringP2P":"Instruct: Identify the topic or theme of StackExchange posts based on the given paragraphs\nQuery: ",
-            "TwentyNewsgroupsClustering":"Instruct: Identify the topic or theme of the given news articles\nQuery: "
-        },
-        "PairClassification":{
-            "SprintDuplicateQuestions":"Instruct: Retrieve duplicate questions from Sprint forum\nQuery: ",
-            "TwitterSemEval2015":"Instruct: Retrieve tweets that are semantically similar to the given tweet\nQuery: ",
-            "TwitterURLCorpus":"Instruct: Retrieve tweets that are semantically similar to the given tweet\nQuery: "
-        },
-        "Reranking":{
-            "AskUbuntuDupQuestions":"Instruct: Retrieve duplicate questions from AskUbuntu forum\nQuery: ",
-            "MindSmallReranking":"Instruct: Retrieve relevant news articles based on user browsing history\nQuery: ",
-            "SciDocsRR":"Instruct: Given a title of a scientific paper, retrieve the titles of other relevant papers\nQuery: ",
-            "StackOverflowDupQuestions":"Instruct: Retrieve duplicate questions from StackOverflow forum\nQuery: "
-        },
-        "Retrieval":{
-            "ArguAna":{
-                "query":"Instruct: Given a claim, find documents that refute the claim\nQuery: ",
-                "corpus":""
-            },
-            "ClimateFEVER":{
-                "query":"Instruct: Given a claim about climate change, retrieve documents that support or refute the claim\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackAndroidRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackEnglishRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackGamingRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackGisRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackMathematicaRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackPhysicsRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackProgrammersRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackStatsRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackTexRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackUnixRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackWebmastersRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "CQADupstackWordpressRetrieval":{
-                "query":"Instruct: Given a question, retrieve detailed question descriptions from Stackexchange that are duplicates to the given question\nQuery: ",
-                "corpus":""
-            },
-            "DBPedia":{
-                "query":"Instruct: Given a query, retrieve relevant entity descriptions from DBPedia\nQuery: ",
-                "corpus":""
-            },
-            "FEVER":{
-                "query":"Instruct: Given a claim, retrieve documents that support or refute the claim\nQuery: ",
-                "corpus":""
-            },
-            "FiQA2018":{
-                "query":"Instruct: Given a financial question, retrieve user replies that best answer the question\nQuery: ",
-                "corpus":""
-            },
-            "HotpotQA":{
-                "query":"Instruct: Given a multi-hop question, retrieve documents that can help answer the question\nQuery: ",
-                "corpus":""
-            },
-            "MSMARCO":{
-                "query":"Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
-                "corpus":""
-            },
-            "NFCorpus":{
-                "query":"Instruct: Given a question, retrieve relevant documents that best answer the question\nQuery: ",
-                "corpus":""
-            },
-            "NQ":{
-                "query":"Instruct: Given a question, retrieve Wikipedia passages that answer the question\nQuery: ",
-                "corpus":""
-            },
-            "QuoraRetrieval":{
-                "query":"Instruct: Given a question, retrieve questions that are semantically equivalent to the given question\nQuery: ",
-                "corpus":""
-            },
-            "SCIDOCS":{
-                "query":"Instruct: Given a scientific paper title, retrieve paper abstracts that are cited by the given paper\nQuery: ",
-                "corpus":""
-            },
-            "SciFact":{
-                "query":"Instruct: Given a scientific claim, retrieve documents that support or refute the claim\nQuery: ",
-                "corpus":""
-            },
-            "Touche2020":{
-                "query":"Instruct: Given a question, retrieve detailed and persuasive arguments that answer the question\nQuery: ",
-                "corpus":""
-            },
-            "TRECCOVID":{
-                "query":"Instruct: Given a query on COVID-19, retrieve documents that answer the query\nQuery: ",
-                "corpus":""
-            }
-        },
-        "STS":{
-            "BIOSSES":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "SICK-R":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS12":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS13":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS14":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS15":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS16":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS17":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STS22":"Instruct: Retrieve semantically similar text.\nQuery: ",
-            "STSBenchmark":"Instruct: Retrieve semantically similar text.\nQuery: "
-        },
-        "Summarization":{
-            "SummEval":"Instruct: Given a news summary, retrieve other semantically similar summaries\nQuery: "
-        }
-    }
 }
 
 
@@ -911,7 +381,7 @@ if __name__ == '__main__':
     }
     if args.pipeline_parallel:
         model_kwargs["device_map"] = "auto"
-        model_kwargs["max_memory"] = get_gpus_max_memory("50GB")
+        # model_kwargs["max_memory"] = get_gpus_max_memory("50GB")
         model_kwargs["offload_folder"] = "offload"
 
     model = GenCLM(**model_kwargs)

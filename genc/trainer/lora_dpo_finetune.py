@@ -85,12 +85,12 @@ def validate(
 
 def compute_kl_loss(
     model: Union[torch.nn.Module, PreTrainedModel, LoRaGenc],
-    ref_model: Union[torch.nn.Module, PreTrainedModel, PeftModel],
     emb_input_chunk: Dict[str, torch.Tensor],
     gen_input_chunk: Dict[str, torch.Tensor],
     chunksize: int,
     emb_adapter_name: str = "emb",
     gen_adapter_name: str = "gen",
+    temperature: float = 0.05,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -118,7 +118,6 @@ def compute_kl_loss(
     if isinstance(model, LoRaGenc):
         model.set_adapter(emb_adapter_name)
     emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
-    
     # Compute pair logits
     pair_input_ids = torch.cat([
         gen_input_chunk["choices_input_ids"].view(-1, gen_input_chunk["choices_input_ids"].size(-1)), # [chunksize, max_length]
@@ -144,31 +143,22 @@ def compute_kl_loss(
     if isinstance(model, LoRaGenc):
         model.set_adapter(gen_adapter_name)
     with torch.no_grad():
-        pair_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
-        ref_pair_logits = ref_model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+        gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg)]
+        gen_logps = get_batch_logps(
+            logits=gen_logits,
+            labels=pair_labels,
+            loss_weight_mask=pair_loss_weight_mask,
+            average_log_prob=True
+        ) # [chunksize * (1 + topk_neg)]
+        gen_logps = gen_logps.view(chunksize, -1)
+        gen_score = torch.softmax(gen_logps/temperature, dim=-1) # [chunksize, 1 + topk_neg]
     if isinstance(model, LoRaGenc):
         model.set_adapter(emb_adapter_name)
-    gen_logps = get_batch_logps(
-        logits=pair_logits,
-        labels=pair_labels,
-        loss_weight_mask=pair_loss_weight_mask,
-        average_log_prob=True
-    ) # [chunksize * (1 + topk_neg)]
-    gen_logps = gen_logps.view(chunksize, -1)
-    ref_logps = get_batch_logps(
-        logits=ref_pair_logits,
-        labels=pair_labels,
-        loss_weight_mask=pair_loss_weight_mask,
-        average_log_prob=True
-    )
-    ref_logps = ref_logps.view(chunksize, -1)
-    gen_score = gen_logps - ref_logps # [chunksize, 1 + topk_neg]
-    gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
 
     query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
     passage_reps = emb_reps[chunksize:].reshape(chunksize, -1, emb_reps.size(-1)) # [chunksize, 1 + topk_neg, emb_dim]
     dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
-    dual_score = torch.log_softmax(dual_score, dim=1) # [chunksize, 1 + topk_neg]    
+    dual_score = torch.log_softmax(dual_score/temperature, dim=1) # [chunksize, 1 + topk_neg]    
     
     kl = torch.nn.KLDivLoss(reduction="batchmean")
     kl_loss = kl(dual_score, gen_score)
@@ -255,7 +245,7 @@ def fit(
     validation_args: ValidationArgument
 ):  
     if isinstance(model, LoRaGenc):
-        model.set_adapter(model_args.gen_adapter_name)
+        model.set_adapter(model_args.emb_adapter_name)
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
     fabric.print(f"Validation metric: {val_metric}")
     fabric.barrier()
@@ -401,10 +391,12 @@ def fit(
                     model.set_adapter(model_args.emb_adapter_name)
                 loss_kl = compute_kl_loss(
                     model=model,
-                    ref_model=ref_model,
                     emb_input_chunk=emb_input_chunk,
                     gen_input_chunk=gen_input_chunk,
                     chunksize=chunksize,
+                    emb_adapter_name=model_args.emb_adapter_name,
+                    gen_adapter_name=model_args.gen_adapter_name,
+                    temperature=model_args.temperature,
                 )
 
                 # DPO loss
@@ -553,6 +545,8 @@ def fit(
 
         if iter_num % validation_args.interval == 0:
             t0 = time.perf_counter()
+            if isinstance(model, LoRaGenc):
+                model.set_adapter(model_args.emb_adapter_name)
             val_metrics = validate(
                 fabric=fabric,
                 model=model,  
