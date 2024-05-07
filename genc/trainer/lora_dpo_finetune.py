@@ -545,6 +545,8 @@ def fit(
 
         if iter_num % validation_args.interval == 0:
             t0 = time.perf_counter()
+            if isinstance(model, LoRaGenc):
+                model.set_adapter(model_args.emb_adapter_name)
             val_metrics = validate(
                 fabric=fabric,
                 model=model,  

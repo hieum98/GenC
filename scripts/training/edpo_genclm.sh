@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --nodes=4              # This needs to match Fabric(num_nodes=...)
+#SBATCH --nodes=12              # This needs to match Fabric(num_nodes=...)
 #SBATCH --ntasks-per-node=1    # This needs to match Fabric(devices=...)
 #SBATCH --gres=gpu:1           # Request N GPUs per machine
 #SBATCH --mem=100G    
@@ -28,9 +28,9 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # Run your training script
 srun python -m genc.main \
-    --config_file scripts/configs/msmarco_phi1.5.yaml \
-    --nodes 4 \
+    --config_file scripts/configs/fulldata_phi1.5.yaml \
+    --nodes 12 \
     --devices 1 \
     --mode edpo \
-    --output_dir output/edpo_msmarco_1.5b_instruct
+    --output_dir output/edpo_1.5b_instruct
 

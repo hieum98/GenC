@@ -51,8 +51,8 @@ gc_mini_batch_size: 16
 
 # Objective args
 prompt_loss_weight: 0.0
-gen_loss_weight: 0.2
-kl_loss_weight: 0.5
+gen_loss_weight: 0.5
+kl_loss_weight: 1.0
 use_miner: True
 dpo_loss_type: sigmoid
 dpo_beta: 0.1

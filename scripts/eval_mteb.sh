@@ -4,13 +4,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=150G
-#SBATCH --constraint=gpu-80gb|h100|gpu-40gb
-#SBATCH --partition=gpulong
+#SBATCH --constraint=h100
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=2
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-55
+#SBATCH --array=0-2
 
 # Quick eval: 0-11
 # FEWSHOT: 0-9
@@ -134,13 +134,13 @@ ALLDS=(
 # )
 
 REMAIN=(
-    "ArxivClusteringS2S"
-    "HotpotQA"
+    "StackExchangeClusteringP2P"
+    "MindSmallReranking"
     "MSMARCO"
 )
 
-# DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
-DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
+# DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache

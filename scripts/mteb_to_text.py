@@ -152,7 +152,7 @@ MODELS = [
     # '7b-esft_simcse-200',
     # '7b-esft_simcse-300',
     # '7b-esft-simcse-500',
-    'esft_msmarco_1.5b_instruct',
+    'esft_1.5b_instruct',
     # 'esft_msmarco_1.5b_instruct_gen',
     # '7b-esft-150', 
     # '7b-esft_msmarco-150', 
