@@ -18,7 +18,7 @@ from transformers.utils import hub, SAFE_WEIGHTS_NAME, SAFE_WEIGHTS_INDEX_NAME
 from transformers import AutoTokenizer, AutoConfig
 from accelerate import init_empty_weights
 from peft import LoraConfig, TaskType
-from fastcore.parallel import parallel
+
 
 from genc.model.genc import LlamaEmbeddingLM, MistralEmbeddingLM, PhiEmbeddingLM
 from genc.model.lora_genc import LoRaGenc
@@ -130,6 +130,7 @@ def load_model(
             )
     else:
         from bitsandbytes.nn import Linear4bit, Params4bit
+        from fastcore.parallel import parallel
         config.use_cache = False
         if "attn_implementation" in kwargs:
             config._attn_implementation = kwargs["attn_implementation"]
@@ -235,10 +236,6 @@ def load_model(
                 def make_inputs_require_grad(module, input, output):
                     output.requires_grad_(True)
                 model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-    if rank==0:
-        print({"memory/allocated_after_model_created": torch.cuda.memory_allocated(local_rank)})
-        print({"memory/reserved_after_model_creation": torch.cuda.memory_reserved(local_rank)})
     
     return model, tokenizer
 

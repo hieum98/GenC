@@ -3,12 +3,13 @@ import types
 from typing import List
 from torch import nn, Tensor
 import torch
-from bitsandbytes.nn import Linear4bit, Params4bit
 
 try:
     from hqq.core.quantize import HQQLinear, HQQBackend, BaseQuantizeConfig
+    from bitsandbytes.nn import Linear4bit, Params4bit
 except ImportError:
     HQQLinear = None
+    Linear4bit = None
     pass
 
 
