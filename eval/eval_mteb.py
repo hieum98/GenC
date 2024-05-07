@@ -381,7 +381,7 @@ if __name__ == '__main__':
     }
     if args.pipeline_parallel:
         model_kwargs["device_map"] = "auto"
-        model_kwargs["max_memory"] = get_gpus_max_memory("50GB")
+        # model_kwargs["max_memory"] = get_gpus_max_memory("50GB")
         model_kwargs["offload_folder"] = "offload"
 
     model = GenCLM(**model_kwargs)

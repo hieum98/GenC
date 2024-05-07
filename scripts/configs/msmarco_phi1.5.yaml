@@ -6,14 +6,14 @@ val_file: msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: checkpoint/esft_msmarco_1.5b_instruct_gen
+model_name_or_path: microsoft/phi-1_5
 pretrained_type: phi
 use_bidirectional: True
 attn_implementation: flash_attention_2
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
-temperature: 0.07
+temperature: 0.05
 # Lora setting
 use_lora: True
 emb_adapter_name: default
@@ -24,7 +24,7 @@ lora_dropout: 0.1
 quantization: False
 
 # Training args
-seed: 777
+seed: 2708
 precision: bf16-true
 
 # FSDP args
@@ -53,12 +53,12 @@ prompt_loss_weight: 0.0
 gen_loss_weight: 0.5
 kl_loss_weight: 1.0
 use_miner: True
-dpo_loss_type: sigmoid
+dpo_loss_type: kto_pair
 dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.0001 # 1e-4@512
+learning_rate: 0.0002 # 2e-4@512
 warmup_steps: 100
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
