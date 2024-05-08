@@ -13,11 +13,9 @@
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.err
 
 # Activate conda environment
-source /home/hieum/.bashrc
-conda activate llm
-cd /home/hieum/uonlp/LLM_Emb
-
-export HF_HOME=/home/hieum/uonlp/hf_cache
+source /scratch/project_462000558/peter/hieu/.bashrc
+conda activate llm_emb
+cd /scratch/project_462000558/peter/hieu/LLM_Emb
 
 # Debugging flags (optional)
 # export NCCL_DEBUG=INFO

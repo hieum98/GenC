@@ -11,7 +11,6 @@ import lightning as L
 from torchmetrics import RunningMean
 from tqdm import tqdm
 from transformers import PreTrainedModel, PreTrainedTokenizer
-from peft import PeftModel
 
 from genc.model.lora_genc import LoRaGenc
 from genc.trainer.trainer_utils import (

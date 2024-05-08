@@ -319,7 +319,7 @@ class ValidationArgument():
     ValidationArgument class to include additional arguments for validation.
     """
     interval: Optional[int] = field(
-        default=1000,
+        default=20000,
         metadata={"help": "Number of optimizer steps between evaluation calls"},
     )
     max_iters: Optional[int] = field(
