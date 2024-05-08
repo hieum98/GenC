@@ -77,7 +77,7 @@ class ModelArguments:
             },
         )
     emb_adapter_name: Optional[str] = field(
-        default="emb",
+        default=None,
         metadata={
             "help": (
                 "The name of the embedding adapter to train."
@@ -85,7 +85,7 @@ class ModelArguments:
             },
         )
     gen_adapter_name: Optional[str] = field(
-        default="gen",
+        default=None,
         metadata={
             "help": (
                 "The name of the generation adapter to train."

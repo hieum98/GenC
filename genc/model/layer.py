@@ -117,6 +117,13 @@ class LoraLayer():
     def set_adapter(self, adapter_name: str):
         assert adapter_name in self.lora_A.keys(), f"Adapter {adapter_name} not found in {self.lora_A.keys()}"
         self.active_adapter = adapter_name
+        self.enable_adapters()
+    
+    def disable_adapters(self):
+        self._disable_adapters = True
+    
+    def enable_adapters(self):
+        self._disable_adapters = False
     
     @property
     def merged(self) -> bool:
@@ -158,18 +165,21 @@ class Linear(nn.Module, LoraLayer):
         # does not work on a manipulated view. This issue may be solved with
         # newer PyTorch versions but this would need extensive testing to be
         # sure.
-        result = result.clone()
-        torch_result_dtype = result.dtype
-        active_adapter = self.active_adapter
-        lora_A = self.lora_A[active_adapter]
-        lora_B = self.lora_B[active_adapter]
-        dropout = self.lora_dropout[active_adapter]
-        scaling = self.scaling[active_adapter]
-        x = x.to(lora_A.weight.dtype)
-        result = result + lora_B(lora_A(dropout(x))) * scaling
-        result = result.to(torch_result_dtype)
-        
-        return result
+        if self._disable_adapters:
+            return result
+        else:
+            result = result.clone()
+            torch_result_dtype = result.dtype
+            active_adapter = self.active_adapter
+            lora_A = self.lora_A[active_adapter]
+            lora_B = self.lora_B[active_adapter]
+            dropout = self.lora_dropout[active_adapter]
+            scaling = self.scaling[active_adapter]
+            x = x.to(lora_A.weight.dtype)
+            result = result + lora_B(lora_A(dropout(x))) * scaling
+            result = result.to(torch_result_dtype)
+            
+            return result
     
     def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None):
         """

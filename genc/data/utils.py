@@ -1,5 +1,5 @@
 import multiprocessing
-from genc.special_tokens import base_bos, user_bos, user_eos, embed_bos, embed_eos, assistant_bos, assistant_eos
+from genc.special_tokens import SPECILA_TOKENS
 
 
 def filter_too_long_example(example, max_len):
@@ -11,15 +11,20 @@ def filter_too_long_example(example, max_len):
     return True
 
 
-def quick_filter_too_long_instructions(example, max_seq_length):
+def quick_filter_too_long_instructions(example, max_seq_length, special_tokens):
     # Filter out super long examples to avoid tokenize taking forever
     if len(example['query'][1].split()) < 5:
         return False
     
-    emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
-    emb_example_format = emb_prompt_format + "{example}" + embed_eos
-    gen_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + assistant_bos
-    gen_example_format = gen_prompt_format + "{response}" + assistant_eos
+    bos = special_tokens.get("bos", "")
+    user_bos = special_tokens.get("user_bos", "")
+    eos = special_tokens.get("eos", "")
+    eot = special_tokens.get("eot", "")
+    assistant_bos = special_tokens.get("assistant_bos", "")
+    emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
+    emb_example_format = emb_prompt_format + "{example}" + eos
+    gen_prompt_format = bos + user_bos + "{prompt}" + eot + assistant_bos
+    gen_example_format = gen_prompt_format + "{response}" + eot + eos
 
     emb_example = emb_example_format.format(prompt=example['query'][0], example=example['query'][1])
 
@@ -40,15 +45,20 @@ def quick_filter_too_long_instructions(example, max_seq_length):
     return True
 
 
-def filter_too_long_instructions(example, tokenizer, max_seq_length):
+def filter_too_long_instructions(example, tokenizer, max_seq_length, special_tokens):
     # Filter out super long examples to avoid tokenize taking forever
     if len(example['query'][1].split()) < 5:
         return False
     
-    emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
-    emb_example_format = emb_prompt_format + "{example}" + embed_eos
-    gen_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + assistant_bos
-    gen_example_format = gen_prompt_format + "{response}" + assistant_eos
+    bos = special_tokens.get("bos", "")
+    user_bos = special_tokens.get("user_bos", "")
+    eos = special_tokens.get("eos", "")
+    eot = special_tokens.get("eot", "")
+    assistant_bos = special_tokens.get("assistant_bos", "")
+    emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
+    emb_example_format = emb_prompt_format + "{example}" + eos
+    gen_prompt_format = bos + user_bos + "{prompt}" + eot + assistant_bos
+    gen_example_format = gen_prompt_format + "{response}" + eot + eos
 
     emb_example = emb_example_format.format(prompt=example['query'][0], example=example['query'][1])
 

@@ -53,11 +53,13 @@ def validate_and_correct_args(
     elif training_args.no_sync and gradient_accumulation_iters == 1:
         training_args.no_sync = False
 
-    if model_args.ref_model_name_or_path is None:
-        model_args.ref_model_name_or_path = model_args.model_name_or_path
-
     if model_args.gen_adapter_name is None:
+        print("No adapter name for gen is provided. Using the same name for both embedding and generator adapters")
         model_args.gen_adapter_name = model_args.emb_adapter_name
+    if model_args.emb_adapter_name is None and model_args.gen_adapter_name is None:
+        print("No adapter name is provided. Using the default adapter name")
+        model_args.emb_adapter_name = "default"
+        model_args.gen_adapter_name = "default"
 
     # Save the corrected args into the yaml file
     config_file = Path(training_args.output_dir) / "config.yaml"
@@ -139,27 +141,34 @@ def main(
         gradient_checkpointing=training_args.gradient_checkpointing,
         attn_implementation=model_args.attn_implementation,
     )
+    fabric.print("Model architecture")
+    fabric.print(model)
 
     if training_args.mode == 'edpo':
-        ref_model, _ = load_model(
-            model_weights_name_or_path=model_args.ref_model_name_or_path,
-            pretrained_type=model_args.pretrained_type,
-            use_bidirectional=model_args.use_bidirectional,
-            normalized=model_args.normalized,
-            pooling_method=model_args.pooling_method,
-            loss_gen_type=model_args.loss_gen_type,
-            temperature=model_args.temperature,
-            quantization=True,
-            use_lora=False,
-            inference=True,
-            low_memory=training_args.low_memory,
-            torch_dtype=torch_dtype,
-            compute_dtype=compute_dtype,
-            precision=training_args.precision,
-            rank=fabric.global_rank,
-            local_rank=fabric.local_rank,
-            attn_implementation=model_args.attn_implementation,
-        )
+        if model_args.ref_model_name_or_path is not None:
+            ref_model, _ = load_model(
+                model_weights_name_or_path=model_args.ref_model_name_or_path,
+                pretrained_type=model_args.pretrained_type,
+                use_bidirectional=model_args.use_bidirectional,
+                normalized=model_args.normalized,
+                pooling_method=model_args.pooling_method,
+                loss_gen_type=model_args.loss_gen_type,
+                temperature=model_args.temperature,
+                quantization=True,
+                use_lora=False,
+                inference=True,
+                low_memory=training_args.low_memory,
+                torch_dtype=torch_dtype,
+                compute_dtype=compute_dtype,
+                precision=training_args.precision,
+                rank=fabric.global_rank,
+                local_rank=fabric.local_rank,
+                attn_implementation=model_args.attn_implementation,
+            )
+        else:
+            ref_model = None
+            fabric.print("No reference model is provided. Using the same model for reference.")
+
     model = fabric.setup_module(model)
 
     # Load the data

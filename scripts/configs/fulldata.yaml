@@ -1,7 +1,7 @@
 # Data args
 data_name: genclm
-data_dir: /scratch/project_462000558/peter/hieu/LLM_Emb/dataset/GenCLM_v2
-val_file: /scratch/project_462000558/peter/hieu/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
+data_dir: dataset/GenCLM_v2
+val_file: dataset/msmarco/msmarco_test.jsonl
 num_workers: 8
 
 # Model args
@@ -35,7 +35,7 @@ low_memory: True
 
 #Training data args
 global_batch_size: 1024
-mini_batch_size: 2
+mini_batch_size: 4
 max_seq_length: 2048
 num_train_epochs: 1
 max_steps: 5000
