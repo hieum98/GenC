@@ -3,8 +3,7 @@ import inspect
 from itertools import chain
 import os
 import re
-from typing import Any, List, Union
-from git import Optional
+from typing import Any, List, Union, Optional
 import torch
 import torch.nn as nn
 import tqdm

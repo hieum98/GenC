@@ -71,18 +71,26 @@ class MSMARCODataset(DataModule):
     
     def prepare_data(self):
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
+        # Cretea a cache file for the filtered dataset
+        Path(f"cache/msmarco/{self.pretrained_type}").mkdir(parents=True, exist_ok=True)
+        print(f"Creating cache dir or loading from: cache/msmarco/{self.pretrained_type}")
+        data_name = self.train_file.split('/')[-1].split('.')[0]
         train_ds = train_ds.filter(
             lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
             num_proc=20,
+            cache_file_name=f"cache/msmarco/{self.pretrained_type}/{data_name}_filtered.arrow",
+            load_from_cache_file=True
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
     def setup(self, stage: str = "") -> None:                
         train_ds = load_dataset('json', data_files=self.train_file, split='train')
+        data_name = self.train_file.split('/')[-1].split('.')[0]
         train_ds = train_ds.filter(
             lambda ex: quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
             num_proc=20,
-            load_from_cache_file=True,
+            cache_file_name=f"cache/msmarco/{self.pretrained_type}/{data_name}_filtered.arrow",
+            load_from_cache_file=True
         )
         val_ds = load_dataset('json', data_files=self.val_file, split='train')
 
