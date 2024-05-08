@@ -4,16 +4,16 @@ import logging
 from typing import Dict, List, Optional, Tuple, Union
 import torch 
 from transformers import (AutoConfig, 
-                          PreTrainedTokenizer,
-                          MistralForCausalLM,
-                          LlamaForCausalLM,
-                          PhiForCausalLM)
+                          PreTrainedTokenizer,)
 from transformers.utils import ModelOutput
 from transformers.integrations import is_deepspeed_zero3_enabled, deepspeed_config
 from pytorch_metric_learning import losses, miners, distances
 from pytorch_metric_learning.utils import distributed as pml_dist
 
 from genc.model.modules import NextTokenLoss
+from genc.model.modeling_lamma_genc_lm import LlamaForCausalLM
+from genc.model.modeling_mistral_genc_lm import MistralForCausalLM
+from genc.model.modeling_phi_genc_lm import PhiForCausalLM
 
 logger = logging.getLogger(__name__)
 

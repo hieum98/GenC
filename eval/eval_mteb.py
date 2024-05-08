@@ -7,8 +7,6 @@ import torch
 from  genc.GenCLM import GenCLM
 
 
-
-
 SET_TO_TASK_TO_DS_TO_PROMPT = {
     'genclm': {
         "Classification": {
@@ -177,109 +175,6 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
     },
 }
 
-
-SET_TO_TASK_TO_DS_TO_SHOTS = {
-    "medi2": {
-        "Classification": {
-            "Banking77Classification": [
-                "I am still waiting on my card?",
-                "What can I do if my card still hasn't arrived after 2 weeks?",
-            ],
-            "EmotionClassification": [
-                "ive been feeling a little burdened lately wasnt sure why that was",
-                "i feel like i have to make the suffering i m seeing mean something",
-            ],
-            "ImdbClassification": [
-                "If only to avoid making this type of film in the future. This film is interesting as an experiment but tells no cogent story.<br /><br />One might feel virtuous for sitting thru it because it touches on so many IMPORTANT issues but it does so without any discernable motive. The viewer comes away with no new perspectives (unless one comes up with one while one's mind wanders, as it will invariably do during this pointless film).<br /><br />One might better spend one's time staring out a window at a tree growing.<br /><br />",
-                "The silent one-panel cartoon Henry comes to Fleischer Studios, billed as \"The world's funniest human\" in this dull little cartoon. Betty, long past her prime, thanks to the Production Code, is running a pet shop and leaves Henry in charge for far too long -- five minutes. A bore.",
-            ],
-        },
-        "Clustering": {
-            "BiorxivClusteringS2S": [
-                "Association of CDH11 with ASD revealed by matched-gene co-expression analysis and mouse behavioral studies", 
-                "Gliotransmission of D-serine promotes thirst-directed behaviors in Drosophila",
-            ],
-            "TwentyNewsgroupsClustering": [
-                "Need to find out number to a phone line", 
-                "what to do with old 256k SIMMs?",
-            ],
-        },
-        "PairClassification": {
-            "SprintDuplicateQuestions": [
-                "Why is it impossible for me to find a easy way to send a picture with text on my Kyocera DuraCore ?",
-                "Send or receive a picture with text - Kyocera DuraCore",
-            ],
-            "TwitterSemEval2015": [
-                "The Ending to 8 Mile is my fav part of the whole movie",
-                "Those last 3 battles in 8 Mile are THE shit",
-            ],
-            "TwitterURLCorpus": [
-                "Liberals , dont let Donald Trump tarnish L.L. Beans sterling brand reputation ",
-                "Liberals, Don&rsquo;t Let Donald Trump Tarnish L.L. Bean&rsquo;s Sterling Brand Reputation",
-            ],
-        },
-        "Reranking": {
-            "AskUbuntuDupQuestions": {
-                "query": [
-                    "what is a short cut i can use to switch applications ?",
-                    "keyboard short cut for switching between two or more instances of the same application ?",
-                ],
-                "corpus": [
-                    "keyboard short cut for switching between two or more instances of the same application ?",
-                    "what is a short cut i can use to switch applications ?",
-                ],
-            },
-        },
-        "Retrieval": {
-            'ArguAna': {
-                'query': [
-                    "People will die if we don’t do animal testing Every year, 23 new drugs are introduced in the UK alone.[13] Almost all will be tested on animals. A new drug will be used for a long time. Think of all the people saved by the use of penicillin. If drugs cost more to test, that means drug companies will develop less. This means more people suffering and dying",
-                    "animals science science general ban animal testing junior" + " " +  "Many of these drugs are “me too” drugs – ones with a slight change that doesn’t make much difference to an existing drug. [14] So often the benefits from animal testing are marginal, and even if there was a slight increase in human suffering, it would be worth it based on the animal suffering saved.",
-                ],
-                'corpus': [
-                    "animals science science general ban animal testing junior" + " " +  "Many of these drugs are “me too” drugs – ones with a slight change that doesn’t make much difference to an existing drug. [14] So often the benefits from animal testing are marginal, and even if there was a slight increase in human suffering, it would be worth it based on the animal suffering saved.",
-                    "People will die if we don’t do animal testing Every year, 23 new drugs are introduced in the UK alone.[13] Almost all will be tested on animals. A new drug will be used for a long time. Think of all the people saved by the use of penicillin. If drugs cost more to test, that means drug companies will develop less. This means more people suffering and dying",
-                ],
-            },
-            'SCIDOCS': {
-                'query': [
-                    "A Direct Search Method to solve Economic Dispatch Problem with Valve-Point Effect",
-                    "A Hybrid EP and SQP for Dynamic Economic Dispatch with Nonsmooth Fuel Cost Function" + " " + "Dynamic economic dispatch (DED) is one of the main functions of power generation operation and control. It determines the optimal settings of generator units with predicted load demand over a certain period of time. The objective is to operate an electric power system most economically while the system is operating within its security limits. This paper proposes a new hybrid methodology for solving DED. The proposed method is developed in such a way that a simple evolutionary programming (EP) is applied as a based level search, which can give a good direction to the optimal global region, and a local search sequential quadratic programming (SQP) is used as a fine tuning to determine the optimal solution at the final. Ten units test system with nonsmooth fuel cost function is used to illustrate the effectiveness of the proposed method compared with those obtained from EP and SQP alone.",
-                ],
-                'corpus': [
-                    "A Hybrid EP and SQP for Dynamic Economic Dispatch with Nonsmooth Fuel Cost Function" + " " + "Dynamic economic dispatch (DED) is one of the main functions of power generation operation and control. It determines the optimal settings of generator units with predicted load demand over a certain period of time. The objective is to operate an electric power system most economically while the system is operating within its security limits. This paper proposes a new hybrid methodology for solving DED. The proposed method is developed in such a way that a simple evolutionary programming (EP) is applied as a based level search, which can give a good direction to the optimal global region, and a local search sequential quadratic programming (SQP) is used as a fine tuning to determine the optimal solution at the final. Ten units test system with nonsmooth fuel cost function is used to illustrate the effectiveness of the proposed method compared with those obtained from EP and SQP alone.",
-                    "A Direct Search Method to solve Economic Dispatch Problem with Valve-Point Effect",
-                ],
-            },
-        },
-        "STS": {
-            'STS12': [	
-                "Counties with population declines will be Vermillion, Posey and Madison.",
-                "Vermillion, Posey and Madison County populations will decline.",
-            ],
-        },
-        "Summarization": {
-            'SummEval': {
-                "query": [
-                    "Mexican restaurant has decided to tap into $70 billion food delivery market. Fast-casual chain will work with the Postmates app to allow mobile orders. App works in similar way to Uber, using hired drivers to deliver the food. But the chain will add a 9% service charge - on top of Postmates' $5 rate.",
-                    "chipotle has decided to tap into the $ 70 billion food delivery market by teaming up with an app to bring burritos straight to customers ' doors . the fast-casual chain will work with the postmates app to begin offering delivery for online and mobile orders in 67 cities . the restaurant plans to add a nine per cent service charge - with the delivery fees for postmates beginning at $ 5 and up depending on distance and demand .",
-                ],
-                "corpus": [
-                    "chipotle has decided to tap into the $ 70 billion food delivery market by teaming up with an app to bring burritos straight to customers ' doors . the fast-casual chain will work with the postmates app to begin offering delivery for online and mobile orders in 67 cities . the restaurant plans to add a nine per cent service charge - with the delivery fees for postmates beginning at $ 5 and up depending on distance and demand .",
-                    "Mexican restaurant has decided to tap into $70 billion food delivery market. Fast-casual chain will work with the Postmates app to allow mobile orders. App works in similar way to Uber, using hired drivers to deliver the food. But the chain will add a 9% service charge - on top of Postmates' $5 rate.",
-                ],
-            },
-        },
-    },
-}
-
-SET_TO_FEWSHOT_PROMPT = {
-    "medi2": {
-        "Retrieval": '\n\nThe provided query could be "{}" and the positive "{}"',
-        "Other": '\n\nThe provided query could be "{}" and the positive "{}"',
-    },
-}
-
 QUICK_EVAL = [
     # Classification
     "Banking77Classification",
@@ -312,27 +207,10 @@ def get_gpus_max_memory(max_memory):
     max_memory = {i: max_memory for i in range(torch.cuda.device_count())}
     return max_memory
 
-def mistral_instruction_format(instruction):
-    return "[INST] " + instruction + " [/INST] "
-
-def genclm_instruction_format(instruction):
-    base_bos: str = "<s>"
-    user_bos: str = "<|user|>\n"
-    user_eos: str = ""
-    embed_bos: str = "\n<|embed|>\n"
-    embed_eos: str = "</e>"
-    assistant_bos: str = "\n<|assistant|>\n"
-    assistant_eos: str = "</s>"
-    return base_bos + user_bos + f"{instruction}" + user_eos + embed_bos if instruction else embed_bos
-
-NAME_TO_FUNC = {
-    "genclm": genclm_instruction_format,
-    "mistral": mistral_instruction_format,
-}
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name_or_path', type=str, required=True, help="Model name or path")
+    parser.add_argument('--is_old', default=False, action='store_true', help="Use old model")
     parser.add_argument('--pretrained_type', type=str, required=True, help="Mistral/Meta-Llama/phi-1_5")
     parser.add_argument('--attn_implementation', default='sdpa', type=str, help="eager/sdpa/flash_attention_2")
     parser.add_argument('--use_bidirectional', action='store_true', help="Use bidirectional attention")
@@ -363,19 +241,15 @@ if __name__ == '__main__':
     if (args.task_names is not None) and (len(args.task_names.split(",")) == 1) and os.path.exists(f"{output_folder}/{args.task_names.split(',')[0]}.json"):
         print(f"Skipping {args.task_names.split(',')[0]}")
         exit()
-
+    
     model_kwargs = {
         "model_weights_name_or_path": args.model_name_or_path,
+        "is_old": args.is_old,
         "pretrained_type": args.pretrained_type,
         "use_bidirectional": args.use_bidirectional,
         "normalized": False,
         "pooling_method": args.pooling_method,
         "torch_dtype": DTYPE_TO_TORCH_DTYPE.get(args.dtype, torch.bfloat16),
-        "base_bos": "<s>",
-        "user_bos": "<|user|>\n",
-        "user_eos": "",
-        "embed_bos": "\n<|embed|>\n",
-        "embed_eos": "</e>",
         "is_inference": True,
         "attn_implementation": args.attn_implementation,
     }
@@ -412,19 +286,9 @@ if __name__ == '__main__':
                 instruction = SET_TO_TASK_TO_DS_TO_PROMPT[args.instruction_set][task_type][task_name]
             
             if isinstance(instruction, dict):
-                if args.num_shots is not None:
-                    instruction = {
-                        k: v + SET_TO_FEWSHOT_PROMPT[args.instruction_set]["Retrieval"].format(
-                            *SET_TO_TASK_TO_DS_TO_SHOTS[args.instruction_set][task_type][task_name][k]
-                        ) if v else v for k, v in instruction.items()
-                    }
-                instruction = {k: NAME_TO_FUNC[args.instruction_format](v.strip(": \n")) for k, v in instruction.items()}
+                instruction = {k: v.strip(": \n") for k, v in instruction.items()}
             else:
-                if args.num_shots is not None:
-                    instruction = instruction + SET_TO_FEWSHOT_PROMPT[args.instruction_set]["Other"].format(
-                        *SET_TO_TASK_TO_DS_TO_SHOTS[args.instruction_set][task_type][task_name]
-                    )
-                instruction = NAME_TO_FUNC[args.instruction_format](instruction.strip(": \n"))
+                instruction = instruction.strip(": \n")
             
             print(f"{model_name} instruction for {task_name}: ", instruction)
             if isinstance(instruction, dict):

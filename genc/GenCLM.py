@@ -5,22 +5,19 @@ from tqdm import tqdm
 from transformers import AutoTokenizer, AutoConfig, BatchEncoding
 
 from genc.model.genc import LlamaEmbeddingLM, MistralEmbeddingLM, PhiEmbeddingLM
+from genc.special_tokens import SPECILA_TOKENS
 
 
 class GenCLM(torch.nn.Module):
     def __init__(
             self,
             model_weights_name_or_path: str,
+            is_old: bool = False,
             pretrained_type: str = 'mistral',
             use_bidirectional: bool = False,
             normalized: bool = True,
             pooling_method: str = "mean",
             torch_dtype: torch.dtype = torch.bfloat16,
-            base_bos: str = "<s>",
-            user_bos: str = "<|user|>\n",
-            user_eos: str = "",
-            embed_bos: str = "\n<|embed|>\n",
-            embed_eos: str = "</e>",
             is_inference: bool = True,
             **kwargs,
             ) -> None:
@@ -54,8 +51,23 @@ class GenCLM(torch.nn.Module):
             padding_side="right", # Has to be right so masking of instruction tokens works correctly
             trust_remote_code=True,
         )
-        self.emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
-        self.emb_example_format = self.emb_prompt_format + "{example}" + embed_eos
+        if is_old:
+            base_bos: str = "<s>"
+            user_bos: str = "<|user|>\n"
+            user_eos: str = ""
+            embed_bos: str = "\n<|embed|>\n"
+            embed_eos: str = "</e>"
+            self.emb_prompt_format = base_bos + user_bos + "{prompt}" + user_eos + embed_bos
+            self.emb_example_format = self.emb_prompt_format + "{example}" + embed_eos
+        else:
+            special_tokens = SPECILA_TOKENS[pretrained_type]
+            bos = special_tokens.get("bos", "")
+            user_bos = special_tokens.get("user_bos", "")
+            eos = special_tokens.get("eos", "")
+            eot = special_tokens.get("eot", "")
+            assistant_bos = special_tokens.get("assistant_bos", "")
+            self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
+            self.emb_example_format = self.emb_prompt_format + "{example}" + eot + eos
 
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.num_gpus = torch.cuda.device_count()

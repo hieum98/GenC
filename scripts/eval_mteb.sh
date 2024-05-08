@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=150G
-#SBATCH --constraint=h100|gpu-80gb|gpu-40gb
+#SBATCH --constraint=h100|gpu-80gb|gpu-40gb|gpu-10gb
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=2
@@ -147,10 +147,37 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
+# python -m eval.eval_mteb \
+#     --model_name_or_path checkpoint/esft_msmarco_7b_instruct \
+#     --is_old \
+#     --pretrained_type mistral \
+#     --attn_implementation sdpa \
+#     --use_bidirectional \
+#     --task_names $DS \
+#     --instruction_set genclm \
+#     --instruction_format genclm \
+#     --batch_size 8 \
+#     --pipeline_parallel \
+#     --pooling_method mean
+
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/esft_msmarco_7b_instruct \
-    --pretrained_type mistral \
-    --attn_implementation sdpa \
+    --model_name_or_path checkpoint/esft_msmarco_1.5b_instruct \
+    --is_old \
+    --pretrained_type phi \
+    --attn_implementation flash_attention_2 \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean
+
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/esft_1.5b_instruct \
+    --is_old \
+    --pretrained_type phi \
+    --attn_implementation flash_attention_2 \
     --use_bidirectional \
     --task_names $DS \
     --instruction_set genclm \

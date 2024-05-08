@@ -20,5 +20,14 @@ SPECILA_TOKENS ={
         'eot': '\n',
         'assistant_bos': '<|im_start|>assistant\n\n',
         'eos': '<|im_end|>'
+    },
+    'old': {
+        'base_bos': "<s>",
+        'user_bos': "<|user|>\n",
+        'user_eos': "",
+        'embed_bos': "\n<|embed|>\n",
+        'embed_eos': "</e>",
+        'assistant_bos': "\n<|assistant|>\n",
+        'assistant_eos': "</s>",
     }
 }
