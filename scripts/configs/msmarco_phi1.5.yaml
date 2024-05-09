@@ -53,7 +53,7 @@ prompt_loss_weight: 0.0
 gen_loss_weight: 0.5
 kl_loss_weight: 1.0
 use_miner: True
-dpo_loss_type: kto_pair
+dpo_loss_type: sigmoid
 dpo_beta: 0.1
 label_smoothing_factor: 0.1
 

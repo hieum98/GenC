@@ -35,7 +35,7 @@ no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 512
+global_batch_size: 576
 mini_batch_size: 4
 max_seq_length: 2048
 num_train_epochs: 1
@@ -53,7 +53,7 @@ prompt_loss_weight: 0.0
 gen_loss_weight: 0.5
 kl_loss_weight: 1.0
 use_miner: True
-dpo_loss_type: kto_pair
+dpo_loss_type: sigmoid
 dpo_beta: 0.1
 label_smoothing_factor: 0.1
 

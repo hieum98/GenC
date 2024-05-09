@@ -19,7 +19,7 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
             'MTOPDomainClassification': 'Classify the intent domain of the given utterance in task-oriented conversation',
             'MTOPIntentClassification': 'Classify the intent of the given utterance in task-oriented conversation',
             'ToxicConversationsClassification': 'Classify the given comments as either toxic or not toxic',
-            'AmazonPolarityClassification': 'Classify Amazon reviews into positive or negative sentimen',
+            'AmazonPolarityClassification': 'Classify Amazon reviews into positive or negative sentiment',
             'AmazonReviewsClassification': 'Classify the given Amazon review into its appropriate rating category',
             'TweetSentimentExtractionClassification': 'Classify the sentiment of a given tweet as either positive, negative, or neutral',
         },

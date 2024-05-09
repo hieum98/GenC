@@ -472,6 +472,25 @@ def dpo_loss(
         )
         return losses, chosen_rewards, rejected_rewards
 
+def nll_loss(
+        logits: torch.FloatTensor, # [bs, seq_len, vocab_size]
+        labels: torch.LongTensor, # [bs, seq_len]
+        loss_weight_mask: torch.FloatTensor, # [bs, seq_len]
+    ):
+    # Shift so that tokens < n predict n
+    shift_logits = logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+    loss_weight_mask = loss_weight_mask[..., 1:].contiguous() if loss_weight_mask is not None else None
+    # Flatten the tokens
+    shift_labels = shift_labels.view(-1)
+    shift_logits = shift_logits.view(-1, shift_logits.size(-1))
+    loss_weight_mask = loss_weight_mask.view(-1) if loss_weight_mask is not None else None
+    # Enable model parallelism
+    shift_labels = shift_labels.to(shift_logits.device)
+    loss_weight_mask = loss_weight_mask.to(shift_logits.device) if loss_weight_mask is not None else None
+    cross_entropy = torch.nn.CrossEntropyLoss(reduction="mean", ignore_index=-100)
+    loss = cross_entropy(shift_logits, shift_labels) 
+    return loss
 
 def lora_filter(key: str, value: Any) -> bool:
     return "lora_" in key or 'lm_head' in key or 'embed_tokens' in key

@@ -16,6 +16,7 @@ from genc.model.lora_genc import LoRaGenc
 from genc.trainer.trainer_utils import (
     CycleIterator, 
     get_batch_logps,
+    nll_loss,
     split_input, 
     dpo_loss, 
     online_hard_example_mining
@@ -193,6 +194,18 @@ def compute_dpo_loss(
     }
     # The policy model forward pass
     all_policy_logits = model(**concat_inputs)['logits'] # [2 * chunksize, max_length, vocab_size]
+    
+    # Compute the NLL loss
+    choice_logits = all_policy_logits[:chunksize].clone()
+    choice_labels = concat_labels[:chunksize].clone()
+    choice_loss_weight_mask = concat_loss_weight_mask[:chunksize].clone()
+    loss_nll = nll_loss(
+        logits=choice_logits,
+        labels=choice_labels,
+        loss_weight_mask=choice_loss_weight_mask,
+    )
+
+    # Compute the DPO loss
     all_policy_logps = get_batch_logps(
         all_policy_logits, 
         concat_labels,
@@ -230,7 +243,7 @@ def compute_dpo_loss(
         beta=training_args.dpo_beta,
     )
     dpo_losses = dpo_losses.mean()
-    return dpo_losses
+    return dpo_losses + loss_nll
 
 
 def fit(

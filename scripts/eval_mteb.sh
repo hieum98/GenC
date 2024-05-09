@@ -161,7 +161,7 @@ echo "Running evaluation for MTEB on $DS"
 #     --pooling_method mean
 
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/esft_msmarco_1.5b_instruct \
+    --model_name_or_path checkpoint/edpo_1.5b_instruct \
     --is_old \
     --pretrained_type phi \
     --attn_implementation flash_attention_2 \
@@ -173,18 +173,18 @@ python -m eval.eval_mteb \
     --pipeline_parallel \
     --pooling_method mean
 
-python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/esft_1.5b_instruct \
-    --is_old \
-    --pretrained_type phi \
-    --attn_implementation flash_attention_2 \
-    --use_bidirectional \
-    --task_names $DS \
-    --instruction_set genclm \
-    --instruction_format genclm \
-    --batch_size 8 \
-    --pipeline_parallel \
-    --pooling_method mean
+# python -m eval.eval_mteb \
+#     --model_name_or_path checkpoint/esft_1.5b_instruct \
+#     --is_old \
+#     --pretrained_type phi \
+#     --attn_implementation flash_attention_2 \
+#     --use_bidirectional \
+#     --task_names $DS \
+#     --instruction_set genclm \
+#     --instruction_format genclm \
+#     --batch_size 8 \
+#     --pipeline_parallel \
+#     --pooling_method mean
 
 
 rm /home/hieum/uonlp/LLM_Emb/mteb-$SLURM_JOB_ID.out
