@@ -316,8 +316,8 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
         self.tokenizer = tokenizer
 
         # Embedding loss
-        self.cons_loss = losses.NTXentLoss(
-            temperature=temperature, 
+        self.cons_loss = losses.SupConLoss(
+            temperature=temperature,
             distance=distances.CosineSimilarity()
         )
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
@@ -574,7 +574,6 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
         return model
 
 
-
 class PhiEmbeddingLM(PhiForCausalLM):
     def __init__(
             self,
@@ -595,8 +594,8 @@ class PhiEmbeddingLM(PhiForCausalLM):
         self.tokenizer = tokenizer
 
         # Embedding loss
-        self.cons_loss = losses.NTXentLoss(
-            temperature=temperature, 
+        self.cons_loss = losses.SupConLoss(
+            temperature=temperature,
             distance=distances.CosineSimilarity()
         )
         self.miner = miners.MultiSimilarityMiner(epsilon=0.2)
