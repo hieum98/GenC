@@ -181,10 +181,9 @@ def main(
         training_args.num_train_epochs * steps_per_epoch, 
         (training_args.max_steps or float("inf"))
         )
-
+    fabric.print(f"Total number of training steps: {lr_max_steps}")
     # Config optimizer and scheduler
-    # Scale learning rate by global batchsize
-    lr = training_args.learning_rate * sqrt(training_args.global_batch_size//512) 
+    lr = training_args.learning_rate
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=lr, 

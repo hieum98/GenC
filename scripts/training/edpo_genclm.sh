@@ -9,8 +9,8 @@
 #SBATCH --job-name=genclm
 #SBATCH --partition=gpulong
 #SBATCH --account=uonlp
-#SBATCH --output=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.out
-#SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-1.5b-%j.err
+#SBATCH --output=/home/hieum/uonlp/LLM_Emb/genclm-7b-%j.out
+#SBATCH --error=/home/hieum/uonlp/LLM_Emb/genclm-7b-%j.err
 
 # Activate conda environment
 source /scratch/project_462000558/peter/hieu/.bashrc
@@ -26,9 +26,9 @@ cd /scratch/project_462000558/peter/hieu/LLM_Emb
 
 # Run your training script
 srun python -m genc.main \
-    --config_file scripts/configs/fulldata_phi1.5.yaml \
-    --nodes 12 \
-    --devices 1 \
+    --config_file scripts/configs/msmarco_llamma3.yaml \
+    --nodes 1 \
+    --devices 8 \
     --mode edpo \
-    --output_dir output/edpo_1.5b_instruct
+    --output_dir output/edpo_8b_instruct
 

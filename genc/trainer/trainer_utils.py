@@ -15,7 +15,6 @@ from lightning.fabric.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.loggers import WandbLogger
 import wandb
 from transformers import PreTrainedModel
-from peft import PeftModel
 # To add a new model, import the transformer, attention, & MLP layers
 # for the wrapping policy and `check_fn` in activation checkpointing
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LLAMA_ATTENTION_CLASSES, LlamaMLP
@@ -275,7 +274,7 @@ def get_batch_logps(
     logits = logits[:, :-1, :]
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == label_pad_token_id] = 0
-    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2) # (batch_size, seq_len)
 
     if average_log_prob:
         return (per_token_logps * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1) # (batch_size,)
@@ -308,17 +307,21 @@ def online_hard_example_mining(
     num_pos = pos_input_ids.size(1)
     num_neg = neg_input_ids.size(1)
 
-    # Get the embeddings
-    query_embs = reps.clone().detach()[:bs]
-    pos_embs = reps.clone().detach()[bs:bs + bs * num_pos].view(bs, num_pos, -1)
-    neg_embs = reps.clone().detach()[bs + bs * num_pos:].view(bs, num_neg, -1)
-    # Pairwise cosine similarity
-    pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
-    neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
-    # Get topk similar negatives
-    _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg, dim=-1) # [bs, topk_neg]
-    # Get top1 dissimilar positives
-    _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
+    if reps != None:
+        # Get the embeddings
+        query_embs = reps.clone().detach()[:bs]
+        pos_embs = reps.clone().detach()[bs:bs + bs * num_pos].view(bs, num_pos, -1)
+        neg_embs = reps.clone().detach()[bs + bs * num_pos:].view(bs, num_neg, -1)
+        # Pairwise cosine similarity
+        pos_sim = torch.cosine_similarity(query_embs.unsqueeze(1), pos_embs, dim=-1) # [bs, num_pos]
+        neg_sim = torch.cosine_similarity(query_embs.unsqueeze(1), neg_embs, dim=-1) # [bs, num_neg]
+        # Get topk similar negatives
+        _, topk_neg_sim_idx = torch.topk(neg_sim, k=topk_neg, dim=-1) # [bs, topk_neg]
+        # Get top1 dissimilar positives
+        _, top1_pos_sim_idx = torch.topk(-pos_sim, k=1, dim=-1) # [bs, 1]
+    else:
+        topk_neg_sim_idx = torch.stack([torch.arange(0, num_neg) for _ in range(bs)], dim=0) # [bs, num_neg]
+        top1_pos_sim_idx = torch.stack([torch.arange(0, num_pos) for _ in range(bs)], dim=0) # [bs, num_pos]
     
     hard_pos_input_ids = []
     hard_pos_attention_mask = []
@@ -491,6 +494,7 @@ def chunked_cross_entropy(
             logits = torch.cat(logits, dim=1)
             logits = logits.reshape(-1, logits.size(-1))
             targets = targets.reshape(-1)
+            loss_weight_mask = loss_weight_mask.reshape(-1) if loss_weight_mask is not None else None
             loss = torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index, reduction='none')
             if loss_weight_mask is not None:
                 loss = loss * loss_weight_mask
@@ -511,6 +515,8 @@ def chunked_cross_entropy(
     # no chunking at all
     logits = logits.reshape(-1, logits.size(-1))
     targets = targets.reshape(-1)
+    loss_weight_mask = loss_weight_mask.reshape(-1) if loss_weight_mask is not None else None
+    
     if chunk_size == 0:
         loss = torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index, reduction='none')
         if loss_weight_mask is not None:

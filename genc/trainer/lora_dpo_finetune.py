@@ -194,24 +194,6 @@ def compute_dpo_loss(
     }
     # The policy model forward pass
     all_policy_logits = model(**concat_inputs)['logits'] # [2 * chunksize, max_length, vocab_size]
-    
-    # Compute the NLL loss
-    choice_logits = all_policy_logits[:chunksize].clone()
-    choice_labels = concat_labels[:chunksize].clone()
-    choice_loss_weight_mask = concat_loss_weight_mask[:chunksize].clone()
-    # Shift so that tokens < n predict n
-    shift_logits = choice_logits[..., :-1, :].contiguous() 
-    shift_labels = choice_labels[..., 1:].contiguous()
-    _loss_weight_mask = choice_loss_weight_mask[..., 1:].contiguous()
-    # Flatten the tokens
-    shift_logits = shift_logits.view(-1, shift_logits.size(-1))
-    shift_labels = shift_labels.view(-1)
-    _loss_weight_mask = _loss_weight_mask.view(-1) 
-    nll_loss = chunked_cross_entropy(
-        logits=shift_logits,
-        targets=shift_labels,
-        loss_weight_mask=_loss_weight_mask,
-    )
 
     # Compute the DPO loss
     all_policy_logps = get_batch_logps(
@@ -223,6 +205,19 @@ def compute_dpo_loss(
     )
     policy_choice_logps = all_policy_logps[:chunksize]
     policy_reject_logps = all_policy_logps[chunksize:]
+
+    # nll loss
+    choice_labels = concat_labels[:chunksize].clone()
+    choice_loss_weight_mask = concat_loss_weight_mask[:chunksize].clone()
+    # compute mask for loss
+    choice_labels = choice_labels[:, 1:].clone()
+    choice_loss_weight_mask = choice_loss_weight_mask[..., 1:].clone().contiguous()
+    loss_mask = choice_labels != -100
+    choice_loss_weight_mask = choice_loss_weight_mask * loss_mask
+    weight_sum = choice_loss_weight_mask.sum()
+    nll_loss = -1 * torch.mean(policy_choice_logps) if training_args.dpo_loss_type == "ipo" else \
+        -1 * torch.sum(policy_choice_logps) / weight_sum.maximum(torch.ones_like(weight_sum))
+
     #The reference model forward pass
     with torch.no_grad():
         if ref_model is not None:
@@ -250,8 +245,8 @@ def compute_dpo_loss(
         label_smoothing=training_args.label_smoothing_factor,
         beta=training_args.dpo_beta,
     )
-    dpo_losses = dpo_losses.mean()
-    return dpo_losses + nll_loss
+    loss = dpo_losses.mean() + nll_loss
+    return loss
 
 
 def fit(
@@ -264,7 +259,8 @@ def fit(
     val_dataloader: DataLoader,
     model_args: ModelArguments,
     training_args: TrainingArguments,
-    validation_args: ValidationArgument
+    validation_args: ValidationArgument,
+    use_online_hard_example_mining: bool = False,
 ):  
     model.set_adapter(model_args.emb_adapter_name)
     val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
@@ -368,10 +364,13 @@ def fit(
             "is_emb": True,
         }
         
-        model.set_adapter(model_args.emb_adapter_name)
-        with torch.no_grad():
-            inputs = (model_inputs, other_kwargs)
-            reps = gc.get_reps_only(inputs, chunksize=min(bs, 32))
+        if use_online_hard_example_mining:
+            model.set_adapter(model_args.emb_adapter_name)
+            with torch.no_grad():
+                inputs = (model_inputs, other_kwargs)
+                reps = gc.get_reps_only(inputs, chunksize=min(bs, 32))
+        else:
+            reps = None
 
         # Forward-backward pass for DPO and KL
         emb_model_inputs, gen_model_inputs = online_hard_example_mining(

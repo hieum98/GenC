@@ -1,5 +1,5 @@
 python -m scripts.merge_model \
-    --config_file output/edpo_1.5b_instruct/config.yaml \
-    --checkpoint_path output/edpo_1.5b_instruct/checkpoints/step_450.ckpt \
-    --output_dir ./checkpoint/edpo_1.5b_instruct \
+    --config_file esft_msmarco_8b_instruct/config.yaml \
+    --checkpoint_path esft_msmarco_8b_instruct/checkpoints/step_500.ckpt \
+    --output_dir ./checkpoint/esft_msmarco_8b_instruct \
     --merge_type emb

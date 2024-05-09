@@ -149,15 +149,9 @@ TASK_LIST_NAMES = [
 ]
 
 MODELS = [
-    # '7b-esft_simcse-200',
-    # '7b-esft_simcse-300',
-    # '7b-esft-simcse-500',
-    'esft_1.5b_instruct',
-    'esft_msmarco_7b_instruct',
-    'esft_msmarco_1.5b_instruct',
-    # '7b-esft-150', 
-    # '7b-esft_msmarco-150', 
-    # '7b-esft_msmarco-100'
+    # 'esft_1.5b_instruct',
+    'edpo_1.5b_instruct',
+    # 'esft_msmarco_1.5b_instruct',
 ]
 
 MODEL_TO_NAME = {
@@ -294,11 +288,11 @@ def get_table(models, task_list, limit_langs=[], skip_langs=[], name="table", no
     with open(f"{name}.txt", "w") as f:
         f.write(TABLE)
 
-# get_table(MODELS, TASK_LIST_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clf", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_CLUSTERING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clu", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_PAIR_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_pclf", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_RERANKING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_rrk", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_RETRIEVAL, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_rtr", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_STS, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_sts", no_lang_col=True)
-# get_table(MODELS, TASK_LIST_EN, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_en", no_lang_col=True)
-get_table(MODELS, QUICK_EVAL, limit_langs=["en", "en-en",'eng-Latn'], name="quick_mteb_en", no_lang_col=True)
+get_table(MODELS, TASK_LIST_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clf", no_lang_col=True)
+get_table(MODELS, TASK_LIST_CLUSTERING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_clu", no_lang_col=True)
+get_table(MODELS, TASK_LIST_PAIR_CLASSIFICATION, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_pclf", no_lang_col=True)
+get_table(MODELS, TASK_LIST_RERANKING, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_rrk", no_lang_col=True)
+get_table(MODELS, TASK_LIST_RETRIEVAL, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_rtr", no_lang_col=True)
+get_table(MODELS, TASK_LIST_STS, limit_langs=["en", "en-en", 'eng-Latn'], name="mteb_sts", no_lang_col=True)
+get_table(MODELS, TASK_LIST_EN, limit_langs=["en", "en-en",'eng-Latn'], name="mteb_en", no_lang_col=True)
+# get_table(MODELS, QUICK_EVAL, limit_langs=["en", "en-en",'eng-Latn'], name="quick_mteb_en", no_lang_col=True)
