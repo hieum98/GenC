@@ -128,6 +128,12 @@ class GenCLMDataset(DataModule):
             )
     
     def train_dataloader(self) -> DataLoader:
+        max_num_worker_suggest = 1
+        try:
+            max_num_worker_suggest = len(os.sched_getaffinity(0))
+        except Exception:
+            pass
+        num_workers = min(self.num_workers, max_num_worker_suggest)
         collator = DPOCCollator(tokenizer=self.tokenizer, label_pad_token_id=self.ignore_index)
         sampler = MutipleDPOCSampler(
             dataset=self.train_dataset,
@@ -142,18 +148,24 @@ class GenCLMDataset(DataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             sampler=sampler,
-            num_workers=self.num_workers,
+            num_workers=num_workers,
             collate_fn=collator,
         )
     
     def val_dataloader(self) -> DataLoader:
+        max_num_worker_suggest = 1
+        try:
+            max_num_worker_suggest = len(os.sched_getaffinity(0))
+        except Exception:
+            pass
+        num_workers = min(self.num_workers, max_num_worker_suggest)
         if hasattr(self, 'val_dataset'):
             collator = EmbCollator(tokenizer=self.tokenizer)
             return DataLoader(
                 self.val_dataset,
                 batch_size=self.batch_size,
                 shuffle=False,
-                num_workers=self.num_workers,
+                num_workers=num_workers,
                 collate_fn=collator,
             )
         else:

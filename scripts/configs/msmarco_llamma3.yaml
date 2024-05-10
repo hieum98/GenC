@@ -1,6 +1,6 @@
 # Data args
 data_name: msmarco
-data_dir: /mnt/hieu/msmarco
+data_dir: dataset/msmarco
 train_file: msmarco_hard.jsonl
 val_file: msmarco_test.jsonl
 num_workers: 4
@@ -65,7 +65,7 @@ grad_norm_clip: 0.3
 gradient_checkpointing: True
 
 # Checkpointing args
-logger_name: tensorboard
+logger_name: wandb
 save_interval: 50
 log_interval: 1
 
