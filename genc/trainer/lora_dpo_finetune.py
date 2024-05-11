@@ -263,10 +263,7 @@ def fit(
     use_online_hard_example_mining: bool = False,
 ):  
     model.set_adapter(model_args.emb_adapter_name)
-    val_metric = validate(fabric, model, val_dataloader, dataclasses.replace(validation_args, max_iters=5))
-    fabric.print(f"Validation metric: {val_metric}")
-    fabric.barrier()
-
+    
     optimizer: torch.optim.Optimizer = stage["optimizer"]
     scheduler : torch.optim.lr_scheduler.LambdaLR = stage["scheduler"]
     checkpoint_iter_num = stage["iter_num"]
