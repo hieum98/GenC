@@ -239,7 +239,7 @@ def main(
 
     torch.cuda.synchronize()
     save_full_path = Path(training_args.output_dir)/ training_args.mode / "final" / "model.ckpt"
-    save_full_path.mkdir(parents=True, exist_ok=True)
+    save_full_path.parent.mkdir(parents=True, exist_ok=True)
     print("Saving full model weights to", save_full_path)
     fabric.save(save_full_path, {'model':model}, filter={"model": lora_filter})
 

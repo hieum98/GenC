@@ -435,6 +435,7 @@ def fit(
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
         optimizer.step()
         optimizer.zero_grad()
+        fabric.barrier()
 
         # Forward-backward pass for contrastive loss
         model.set_adapter(model_args.emb_adapter_name)
@@ -500,9 +501,9 @@ def fit(
         # for embed_weigh and lm_head only uppdate the params corresponding to the trainable tokens
         optimizer.step()
         optimizer.zero_grad()
-
         if scheduler:
             scheduler.step()
+        fabric.barrier()
         
         if iter_num % training_args.log_interval == 0:
             _cons_loss = cons_running_loss.compute().item()
