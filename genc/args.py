@@ -37,6 +37,10 @@ class DataArguments:
         default=os.cpu_count()//2,
         metadata={"help": "Number of workers for dataloader."},
         )
+    max_data_samples: Optional[int] = field(
+        default=1000000,
+        metadata={"help": "The maximum number of samples to use for training."},
+        )
 
 @dataclass
 class ModelArguments:

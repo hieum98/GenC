@@ -68,6 +68,9 @@ class GenCLM(torch.nn.Module):
             assistant_bos = special_tokens.get("assistant_bos", "")
             self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
             self.emb_example_format = self.emb_prompt_format + "{example}" + eot + eos
+        
+        print(f"The text prompt format is: \n{self.emb_prompt_format}")
+        print(f"The text example format is: \n{self.emb_example_format}")
 
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.num_gpus = torch.cuda.device_count()

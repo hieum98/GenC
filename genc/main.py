@@ -273,6 +273,7 @@ def setup(
             seed=training_args.seed,
             num_workers=data_args.num_workers,
             ignore_index=data_args.ignore_index,
+            max_data_samples=data_args.max_data_samples,
         )
     elif data_args.data_name == 'simcse':
         data = SimCSEDataset(

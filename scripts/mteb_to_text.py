@@ -150,8 +150,10 @@ TASK_LIST_NAMES = [
 
 MODELS = [
     # 'esft_1.5b_instruct',
-    'edpo_1.5b_instruct',
+    # 'edpo_1.5b_instruct',
     # 'esft_msmarco_1.5b_instruct',
+    'edpo_msmarco_1.5b_instruct',
+    # 'esft_msmarco_7b_instruct'
 ]
 
 MODEL_TO_NAME = {

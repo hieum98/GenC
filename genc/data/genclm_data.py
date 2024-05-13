@@ -27,6 +27,7 @@ class GenCLMDataset(DataModule):
     """
     data_dir: str="dataset/GenCLM"
     val_file: str=None
+    max_data_samples: int = -1
 
     seed: int = 42
     num_workers: int = 4
@@ -75,8 +76,8 @@ class GenCLMDataset(DataModule):
     def prepare_data(self):
         train_ds = []
         # create cache dir 
-        Path(f"cache/{self.pretrained_type}").mkdir(parents=True, exist_ok=True)
-        print(f"Creating cache dir or loading from: cache/{self.pretrained_type}")
+        Path(f"cache/{self.pretrained_type}_hard").mkdir(parents=True, exist_ok=True)
+        print(f"Creating cache dir or loading from: cache/{self.pretrained_type}_hard")
         for file in self.train_files:
             ds = load_dataset('json', data_files=file, split='train')
             data_name = file.split('/')[-1].split('.')[0]
@@ -85,9 +86,8 @@ class GenCLMDataset(DataModule):
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length, self.special_tokens) if data_name!='msmarco' \
                     else quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
                 num_proc=50,
-                cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
+                cache_file_name=f"cache/{self.pretrained_type}_hard/{data_name}_filtered.arrow",
             )         
-            train_ds.append(ds)
         
         if self.val_file is not None:
             val_ds = load_dataset('json', data_files=self.val_file, split='train')
@@ -101,9 +101,12 @@ class GenCLMDataset(DataModule):
                 lambda ex: filter_too_long_instructions(ex, self.tokenizer, self.max_seq_length, self.special_tokens) if data_name!='msmarco' \
                     else quick_filter_too_long_instructions(ex, self.max_seq_length, self.special_tokens),
                 num_proc=50,
-                cache_file_name=f"cache/{self.pretrained_type}/{data_name}_filtered.arrow",
+                cache_file_name=f"cache/{self.pretrained_type}_hard/{data_name}_filtered.arrow",
                 load_from_cache_file=True
             )
+            if self.max_data_samples > 0:
+                num_data_samples = min(len(ds) - 1, self.max_data_samples)
+                ds = ds.train_test_split(train_size=num_data_samples)['train']
             train_ds.append(ds)
         
         if self.val_file is not None:
