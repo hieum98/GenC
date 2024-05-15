@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=150G
-#SBATCH --constraint=h100|gpu-80gb|gpu-40gb|gpu-10gb
+#SBATCH --constraint=h100|gpu-80gb|gpu-40gb|gpu-20gb
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:1                 # number of gpus
 #SBATCH --cpus-per-task=2
@@ -15,6 +15,7 @@
 # Quick eval: 0-11
 # FEWSHOT: 0-9
 # ALLDS: 0-55
+# RETRIEVAL: 0-14
 
 ######################
 ### Set enviroment ###
@@ -117,31 +118,35 @@ ALLDS=(
     "SummEval"
 )
 
-# Dataets for fewshot exps
-# FEWSHOT=(
-# Banking77Classification
-# EmotionClassification
-# ImdbClassification
-# BiorxivClusteringS2S
-# SprintDuplicateQuestions
-# TwitterSemEval2015
-# TwitterURLCorpus
-# AskUbuntuDupQuestions
-# ArguAna
-# SCIDOCS
-# STS12
-# SummEval
-# )
+# Retrieve the dataset name
+RETRIEVAL=(
+    "ArguAna"
+    "ClimateFEVER"
+    "CQADupstackTexRetrieval"
+    "DBPedia"
+    "FEVER"
+    "FiQA2018"
+    "HotpotQA"
+    "MSMARCO"
+    "NFCorpus"
+    "NQ"
+    "QuoraRetrieval"
+    "SCIDOCS"
+    "SciFact"
+    "Touche2020"
+    "TRECCOVID"
+)
 
 REMAIN=(
-    "ArxivClusteringS2S"
-    "BiorxivClusteringP2P"
     "FEVER"
-    "MSMARCO"
+    "Touche2020"
+    "ClimateFEVER"
+    "RedditClusteringP2P"
 )
 
 # DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
 DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+# DS=${RETRIEVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
@@ -161,21 +166,8 @@ echo "Running evaluation for MTEB on $DS"
 #     --pipeline_parallel \
 #     --pooling_method mean
 
-python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/edpo_msmarco_8b_instruct \
-    --pretrained_type llama \
-    --attn_implementation sdpa \
-    --use_bidirectional \
-    --task_names $DS \
-    --instruction_set genclm \
-    --instruction_format genclm \
-    --batch_size 8 \
-    --pipeline_parallel \
-    --pooling_method mean
-
 # python -m eval.eval_mteb \
-#     --model_name_or_path checkpoint/edpo_8b_instruct \
-#     --is_old \
+#     --model_name_or_path checkpoint/edpo_msmarco_8b_instruct \
 #     --pretrained_type llama \
 #     --attn_implementation sdpa \
 #     --use_bidirectional \
@@ -185,6 +177,18 @@ python -m eval.eval_mteb \
 #     --batch_size 8 \
 #     --pipeline_parallel \
 #     --pooling_method mean
+
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/edpo_8b_instruct_hard \
+    --pretrained_type llama \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean
 
 # python -m eval.eval_mteb \
 #     --model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct \

@@ -271,7 +271,7 @@ def get_batch_logps(
     loss_weight_mask = loss_weight_mask[..., 1:].clone().contiguous() if loss_weight_mask is not None else None
     loss_mask = labels != label_pad_token_id
     loss_weight_mask = loss_weight_mask * loss_mask if loss_weight_mask is not None else loss_mask
-    logits = logits[:, :-1, :]
+    logits = logits[:, :-1, :] # (batch_size, seq_len, vocab_size)
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == label_pad_token_id] = 0
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2) # (batch_size, seq_len)
@@ -521,6 +521,7 @@ def chunked_cross_entropy(
         loss = torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index, reduction='none')
         if loss_weight_mask is not None:
             loss = loss * loss_weight_mask
+            return loss.sum() / loss_weight_mask.sum()
         return loss.mean()
 
     # lm_head wasn't chunked, chunk cross entropy
@@ -531,7 +532,9 @@ def chunked_cross_entropy(
         torch.nn.functional.cross_entropy(logit_chunk, target_chunk, ignore_index=ignore_index, reduction="none") * loss_weight_mask_chunk
         for logit_chunk, target_chunk, loss_weight_mask_chunk in zip(logit_chunks, target_chunks, loss_weight_mask_chunks)
     ]
-    non_masked_elems = (targets != ignore_index).sum()
+    non_masked_elems = (targets != ignore_index).to(torch.float)
+    non_masked_elems = non_masked_elems * loss_weight_mask if loss_weight_mask is not None else non_masked_elems
+    non_masked_elems = non_masked_elems.sum()
     # [non_masked_elems div note]:
     #   max(1, non_masked_elems) would be more ergonomic to avoid a division by zero. However that
     #   results in a python int which is then passed back to torch division. By using the

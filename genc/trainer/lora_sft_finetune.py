@@ -15,6 +15,7 @@ from transformers import PreTrainedModel, PreTrainedTokenizer
 from genc.model.lora_genc import LoRaGenc
 from genc.trainer.trainer_utils import (
     CycleIterator,
+    chunked_cross_entropy,
     get_batch_logps,
     lora_filter, 
     split_input, 
@@ -140,15 +141,19 @@ def compute_kl_loss(
     }
     model.set_adapter(gen_adapter_name)
     with torch.no_grad():
-        gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg)]
-        gen_logps = get_batch_logps(
-            logits=gen_logits,
-            labels=pair_labels,
-            loss_weight_mask=pair_loss_weight_mask,
-            average_log_prob=True
-        ) # [chunksize * (1 + topk_neg)]
-        gen_logps = gen_logps.view(chunksize, -1)
-        gen_score = torch.softmax(gen_logps/temperature, dim=-1) # [chunksize, 1 + topk_neg]
+        gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+        gen_loss = []
+        for i in range(gen_logits.size(0)):
+            l = chunked_cross_entropy(
+                logits=gen_logits[i],
+                targets=pair_labels[i],
+                loss_weight_mask=pair_loss_weight_mask[i],
+            )
+            gen_loss.append(l)
+        gen_loss = torch.stack(gen_loss, dim=0) # [chunksize * (1 + topk_neg)]
+        gen_score = 1 / torch.exp(gen_loss) # [chunksize * (1 + topk_neg)]
+        gen_score = gen_score.view(chunksize, -1)
+        gen_score = torch.softmax(gen_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
     model.set_adapter(emb_adapter_name)
 
     query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]

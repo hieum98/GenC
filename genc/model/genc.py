@@ -204,14 +204,6 @@ class MistralEmbeddingLM(MistralForCausalLM):
         }
 
         if is_gen:
-            # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
-            # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
-            # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device) # [b, n]
-            # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, self.config.hidden_size) # [b, n, d]
-            # inputs_embeds = self.model.embed_tokens(input_ids)
-            # non_trainable_inputs_embeds = inputs_embeds.clone().detach() # [b, n, d]
-            # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
-
             gen_kwargs = {
                 "return_dict": return_dict,
                 "position_ids": position_ids,

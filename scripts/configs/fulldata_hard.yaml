@@ -36,13 +36,13 @@ low_memory: True
 #Training data args
 max_data_samples: 80000
 global_batch_size: 1024
-mini_batch_size: 2
+mini_batch_size: 1
 max_seq_length: 512
 num_train_epochs: 1
 max_steps: 5000
 num_positive_samples: 1
-num_negative_samples: 4
-topk_neg: 4
+num_negative_samples: 3
+topk_neg: 3
 
 # Gradcache settings
 use_gc: True

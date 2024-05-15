@@ -149,11 +149,10 @@ TASK_LIST_NAMES = [
 ]
 
 MODELS = [
-    # 'esft_1.5b_instruct',
     # 'edpo_1.5b_instruct',
-    # 'esft_msmarco_1.5b_instruct',
     'edpo_msmarco_1.5b_instruct',
-    # 'esft_msmarco_7b_instruct'
+    'edpo_msmarco_8b_instruct',
+    'edpo_8b_instruct_hard',
 ]
 
 MODEL_TO_NAME = {
@@ -252,6 +251,7 @@ def get_rows(dataset, model_name, limit_langs=[], skip_langs=[]):
         rows.append([lang, main_metric, test_result_lang])
     if len(rows) == 0:
         print(f"Skipping {dataset} for {model_name}")
+        rows.append([None, None, None])
     return rows
 
 

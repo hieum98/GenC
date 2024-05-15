@@ -4,7 +4,7 @@ from functools import partial
 from mteb import MTEB
 import torch
 
-from  genc.GenCLM import GenCLM
+from  genc.GenCLM import GenCLM, GenCLMReranker, GenCLMRetrieval
 
 
 SET_TO_TASK_TO_DS_TO_PROMPT = {
@@ -66,92 +66,122 @@ SET_TO_TASK_TO_DS_TO_PROMPT = {
         'Retrieval': {
             ### Bio-Medical Information Retrieval ###
             # NFCorpus [7] contains natural language queries harvested from NutritionFacts (NF). We use the original splits provided alongside all content sources from NF (videos, blogs, and Q&A posts) as queries Q and annotated medical documents from PubMed as corpus T.
-            'NFCorpus': {
+            'NFCorpus': [{
                 'query': 'Represent the query to find a medical document relevant with it',
                 'corpus': 'Represent this text of a medical document to find a query that it answers',
             },
+            "From the question, provice a professional medical answer for it"
+            ],
             # TREC-COVID [65] is an ad-hoc search challenge based on the CORD-19 dataset containing scientific articles related to the COVID-19 pandemic [69]. We include the July 16, 2020 version of CORD-19 dataset as corpus T and use the final cumulative judgements with query descriptions from the original task as queries Q.
-            'TRECCOVID': {
+            'TRECCOVID': [{
                 'query': 'Represent the query on COVID-19 to retrieve documents that answer the query',
                 'corpus': 'Represent the scientific article about COVID-19'
             },
+            "Given a question about COVID-19, find a scientific article that answers the question"
+            ],
             ### Open-domain Question Answering (QA) ###
-            'MSMARCO': {
+            'MSMARCO': [{
                 'query': 'Represent the web search query to find a passage that addresses it',
                 'corpus': 'Represent the passage for finding a search query that it addresses',
             },
+            "Generate a passage such that it can be matched with the following user's search query that it adequately answers."
+            ],
             # Natural Questions [34] contains Google search queries and documents with paragraphs and answer spans within Wikipedia articles. We did not use the NQ version from ReQA [1] as it focused on queries having a short answer. As a result, we parsed the HTML of the original NQ dataset and include more complex development queries that often require a longer passage as answer compared to ReQA. We filtered out queries without an answer, or having a table as an answer, or with conflicting Wikipedia pages. We retain 2,681,468 passages as our corpus T and 3452 test queries Q from the original dataset.
-            'NQ': {
+            'NQ': [{
                 'query': 'Represent the query to find an answer passage from a Wikipedia article that addresses it',
                 'corpus': 'Represent the Wikipedia article passage to find a query that would be addressed by it',
             },
+            "From the question, find a cutout from Wikipedia with the answer."
+            ],
             # HotpotQA [76] contains multi-hop like questions which require reasoning over multiple paragraphs to find the correct answer. We include the original full-wiki task setting: utilizing processed Wikipedia passages as corpus T. We held out randomly sampled 5447 queries from training as our dev split. We use the original (paper) task’s development split as our test split Q.
-            'HotpotQA': {
+            'HotpotQA': [{
                 # Wikipedia Question
                 'query': 'Represent the question to find documents that can help answer the question',
                 # Wikipedia Articles
                 'corpus': 'Represent the document to find a question that it relates to',
             },
+            "Find a document that answers the following question from Wikipedia"
+            ],
             # FiQA-2018 [44] Task 2 consists of opinion-based question-answering. We include financial data by crawling StackExchange posts under the Investment topic from 2009-2017 as our corpus T. We randomly sample out 500 and 648 queries Q from the original training split as dev and test splits.            
-            'FiQA2018': {
+            'FiQA2018': [{
                 'query': 'Represent the financial question to find user replies that best answer it',
                 'corpus': 'Represent the financial post to find a question that it answers',
             },
+            "Given this question in financial topic, get an answer for it."
+            ],
             ### Argument Retrieval ###
             # ArguAna Counterargs Corpus [67] involves the task of retrieval of the best counterargument to an argument. We include pairs of arguments and counterarguments scraped from the online debate portal as corpus T. We consider the arguments present in the original test split as our queries Q.            
-            'ArguAna': {
+            'ArguAna': [{
                 'query': 'Represent a claim, find passages that refute the claim',
                 'corpus': 'Represent the passage to find a claim that it refutes',
             },
+            "Given a claim, generate a passage that refutes it."
+            ],
             # Touché-2020 [6] Task 1 is a conversational argument retrieval task. We use the conclusion as title and premise for arguments present in args.me [66] as corpus T. We include the shared Touché-2020 task data as our test queries Q. The original relevance judgements (qrels) file also included negative judgements (-2) for non-arguments present within the corpus, but for simplicity we substitute them as zero.            
-            'Touche2020': {
+            'Touche2020': [{
                 'query': 'Represent a question to retrieve detailed and persuasive arguments that answer the question',
                 'corpus': 'Represent an argument to retrieve a question that it takes a stance about',
             },
+            "Answer the following question."
+            ],
             ### Duplicate Question Retrieval ###
             # CQADupStack [25] is a popular dataset for research in community question-answering (cQA). The corpus T comprises of queries from 12 different StackExchange subforums: Android, English,Gaming, Gis, Mathematica, Physics, Programmers, Stats, Tex, Unix, Webmasters and Wordpress. We utilize the original test split for our queries Q, and the task involves retrieving duplicate query (title + body) for an input query title. We evaluate each StackExchange subforum separately and report the overall mean scores for all tasks in BEIR.            
             # Example query: Android chroot ubuntu - is it possible to get ubuntu to recognise usb devices
             # Example doc: I want to send files to android tablet with a application from PC. - I can send files directly to tablet (2.3 android OS) PC see it as a external usb drive. - But i can't send files to tablet (4.2 android OS), because PC see it as a portable media player.(MTP) - How can i fix this problem ? - How can show my device as a external drive? my application that sent files written via Delphi.
             # Example doc title: How can show android tablet as a external storage to PC?
-            'CQADupstackTexRetrieval': {
+            'CQADupstackTexRetrieval': [{
                 'query': 'Represent a question to find detailed question descriptions from Stackexchange that are duplicates to the given question',
                 'corpus': 'Represent a question to find detailed question descriptions from Stackexchange that are duplicates to the given question',
             },
+            "Given this question, find a similar question from Stackexchange"
+            ],
             # Quora Duplicate Questions dataset identifies whether two questions are duplicates. Quora originally released containing 404,290 question pairs. We add transitive closures to the original dataset. Further, we split it into train, dev, and test sets with a ratio of about 85%, 5% and 10% of the original pairs. We remove all overlaps between the splits and ensure that a question in one split of the dataset does not appear in any other split to mitigate the transductive classification problem [27]. We achieve 522,931 unique queries as our corpus T and 5,000 dev and 10,000 test queries Q respectively
-            'QuoraRetrieval': {
+            'QuoraRetrieval': [{
                 'query': 'Represent the question to find another similar question on Quora',
                 'corpus': 'Represent the question to find another simtlar question on Quora',
             },
+            "Find a similar quora-style question"
+            ],
             ### Entity Retrieval ###
             # DBPedia-Entity-v2 [21] is an established entity retrieval dataset. It contains a set of heterogeneous entity-bearing queries Q containing named entities, IR style keywords, and natural language queries. The task involves retrieving entities from the English part of DBpedia corpus T from October 2015. We randomly sample out 67 queries from the test split as our dev set.
-            'DBPedia': {
+            'DBPedia': [{
                 'query': 'Represent the query to find relevant entity descriptions from DBPedia',
                 'corpus': 'Represent the entity descriptions from DBPedia',
             },
+            "Given a query, find a relevant entity description"
+            ],
             ### Citation Prediction ###
             # SCIDOCS [9] contains a corpus T of 30K held-out pool of scientific papers. We consider the direct-citations (1 out of 7 tasks mentioned in the original paper) as the best suited task for retrieval evaluation in BEIR. The task includes 1k papers as queries Q with 5 relevant papers and 25 (randomly selected) uncited papers for each query.
-            'SCIDOCS': {
+            'SCIDOCS': [{
                 'query': 'Represent the scientific paper title to find paper abstracts that are similar the given paper',
                 'corpus': 'Represent the abstract of this scientific paper to find the title of another scientific paper on PubMed that similar the given paper',
             },
+            "With the title, generate the corresponding scientific abstract."
+            ],
             ### Fact Checking ###
             # FEVER [60] The Fact Extraction and VERification dataset is collected to facilitate the automatic fact checking. We utilize the original paper splits as queries Q and retrieve evidences from the pre-processed Wikipedia Abstracts (June 2017 dump) as our corpus T.
-            'FEVER': {
+            'FEVER': [{
                 'query': 'Represent the claim about to find documents that support or refute the claim',
                 # Wikipedia Articles
                 'corpus': 'Represent the documents to find a claim that it supports or refute',
             },
-            'ClimateFEVER': {
+            "Given a claim, find a document that supports or refutes it."
+            ],
+            'ClimateFEVER': [{
                 # Climate-based Claim
                 'query': 'Represent the claim about climate change to find documents that support or refute the claim',
                 # Wikipedia Articles
                 'corpus': 'Represent the documents to find a claim about climate change that it supports or refute',
             },
+            "Given a claim about climate change, find a document that supports or refutes it."
+            ],
             # SciFact [68] verifies scientific claims using evidence from the research literature containing scientific paper abstracts. We use the original publicly available dev split from the task containing 300 queries as our test queries Q, and include all documents from the original dataset as our corpus T.
-            'SciFact': {
+            'SciFact': [{
                 'query': 'Represent the scientific claim to find a documents to support it',
                 'corpus': 'Represent the scientific documents to find a claim that it supports',
             },
+            "Given the fact, generate its justifications"
+            ],
         },
         'STS': {
             # Other prompt candidates:
@@ -226,6 +256,7 @@ def get_args():
     parser.add_argument('--output_folder', default=None, type=str)
     parser.add_argument('--overwrite_results', action='store_true')
     parser.add_argument('--pipeline_parallel', action='store_true')
+    parser.add_argument('--rerank', action='store_true')
     parser.add_argument('--pooling_method', default='mean', type=str)
     parser.add_argument('--top_k', default=10, type=int)    
     return parser.parse_args()
@@ -238,9 +269,10 @@ if __name__ == '__main__':
 
     model_name = args.model_name_or_path.rstrip('/').split('/')[-1]
     output_folder = args.output_folder if args.output_folder else f"results/{model_name}"
-    if (args.task_names is not None) and (len(args.task_names.split(",")) == 1) and os.path.exists(f"{output_folder}/{args.task_names.split(',')[0]}.json"):
-        print(f"Skipping {args.task_names.split(',')[0]}")
-        exit()
+    if not args.overwrite_results:
+        if (args.task_names is not None) and (len(args.task_names.split(",")) == 1) and os.path.exists(f"{output_folder}/{args.task_names.split(',')[0]}.json"):
+            print(f"Skipping {args.task_names.split(',')[0]}")
+            exit()
     
     model_kwargs = {
         "model_weights_name_or_path": args.model_name_or_path,
@@ -258,17 +290,12 @@ if __name__ == '__main__':
         # model_kwargs["max_memory"] = get_gpus_max_memory("50GB")
         model_kwargs["offload_folder"] = "offload"
 
-    model = GenCLM(**model_kwargs)
-
     kwargs = {"task_langs": ['en']}
     if args.task_names:
         kwargs["tasks"] = args.task_names.split(",")
     elif args.task_types:
         kwargs["task_types"] = args.task_types.split(",")
     tasks = [(t.metadata.name, t.metadata.type) for t in MTEB(**kwargs).tasks]
-
-    if args.max_length is not None:
-        model.encode = partial(model.encode, max_length=args.max_length)
 
     for (task_name, task_type) in tasks:
         if task_name in ['MSMARCOv2', 'BigPatentClustering']:
@@ -285,12 +312,23 @@ if __name__ == '__main__':
                     continue
                 instruction = SET_TO_TASK_TO_DS_TO_PROMPT[args.instruction_set][task_type][task_name]
             
+            gen_prompt = None
+            if isinstance(instruction, list):
+                gen_prompt = instruction[1]
+                instruction = instruction[0]
+            
             if isinstance(instruction, dict):
                 instruction = {k: v.strip(": \n") for k, v in instruction.items()}
             else:
                 instruction = instruction.strip(": \n")
             
             print(f"{model_name} instruction for {task_name}: ", instruction)
+            if gen_prompt:
+                print(f"{model_name} gen_prompt for {task_name}: ", gen_prompt)
+
+            model = GenCLMRetrieval(**model_kwargs)
+            if args.max_length is not None:
+                model.encode = partial(model.encode, max_length=args.max_length)
             if isinstance(instruction, dict):
                 model.encode_queries = partial(model.encode_queries, instruction=instruction['query'])
                 model.encode_corpus = partial(model.encode_corpus, instruction=instruction['corpus'])
@@ -299,14 +337,33 @@ if __name__ == '__main__':
             
         eval_splits = ["test" if task_name not in ['MSMARCO'] else 'dev']
         evaluation = MTEB(tasks=[task_name], task_langs=['en'])
+        save_qrels = False if gen_prompt is None else True
         evaluation.run(
             model,
             output_folder=output_folder,
             eval_splits=eval_splits,
             batch_size=args.batch_size,
-            top_k=args.top_k,
+            save_qrels=save_qrels,
             overwrite_results=args.overwrite_results,
         )
+        if gen_prompt and args.rerank:
+            # Clear the model and gpu memory to avoid OOM errors when loading a new model
+            torch.cuda.empty_cache()
+            del model
+            model = GenCLMReranker(**model_kwargs)
+            if args.max_length is not None:
+                model.predict = partial(model.predict, max_length=args.max_length)
+            model.predict = partial(model.predict, instruction=gen_prompt)
+            evaluation.run(
+                model,
+                output_folder=os.path.join(output_folder, "rerank"),
+                eval_splits=eval_splits,
+                batch_size=4,
+                top_k=args.top_k,
+                save_qrels=False,
+                overwrite_results=args.overwrite_results,
+                previous_results=os.path.join(output_folder, f"{task_name}_qrels.json"),
+            )
 
 
 
