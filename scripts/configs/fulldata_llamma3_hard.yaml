@@ -35,7 +35,7 @@ no_sync: True
 low_memory: True
 
 #Training data args
-max_data_samples: 80000
+max_data_samples: 100000
 global_batch_size: 1024
 mini_batch_size: 2
 max_seq_length: 512
