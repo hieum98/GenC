@@ -28,10 +28,9 @@ export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # Run your training script
 srun python -m genc.main \
-    --config_file output/edpo_msmarco_8b_instruct/config.yaml \
+    --config_file scripts/configs/fulldata_hard.yaml \
     --nodes 1 \
     --devices 8 \
     --mode edpo \
-    --output_dir output/edpo_msmarco_8b_instruct \
-    --checkpoint_path output/edpo_msmarco_8b_instruct/checkpoints/step_50.ckpt
+    --output_dir output/edpo_7b_instruct
 
