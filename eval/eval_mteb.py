@@ -240,6 +240,7 @@ def get_gpus_max_memory(max_memory):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name_or_path', type=str, required=True, help="Model name or path")
+    parser.add_argument('--reranker_model_name_or_path', type=str, default=None, help="Reranker model name or path")
     parser.add_argument('--is_old', default=False, action='store_true', help="Use old model")
     parser.add_argument('--pretrained_type', type=str, required=True, help="Mistral/Meta-Llama/phi-1_5")
     parser.add_argument('--attn_implementation', default='sdpa', type=str, help="eager/sdpa/flash_attention_2")
@@ -337,19 +338,21 @@ if __name__ == '__main__':
             
         eval_splits = ["test" if task_name not in ['MSMARCO'] else 'dev']
         evaluation = MTEB(tasks=[task_name], task_langs=['en'])
-        save_qrels = False if gen_prompt is None else True
+        save_predictions = True if task_name in SET_TO_TASK_TO_DS_TO_PROMPT[args.instruction_set]['Retrieval'] else False
         evaluation.run(
             model,
             output_folder=output_folder,
             eval_splits=eval_splits,
             batch_size=args.batch_size,
-            save_qrels=save_qrels,
+            save_predictions=save_predictions,
             overwrite_results=args.overwrite_results,
         )
         if gen_prompt and args.rerank:
             # Clear the model and gpu memory to avoid OOM errors when loading a new model
             torch.cuda.empty_cache()
             del model
+            if args.reranker_model_name_or_path is not None:
+                model_kwargs["model_weights_name_or_path"] = args.reranker_model_name_or_path
             model = GenCLMReranker(**model_kwargs)
             if args.max_length is not None:
                 model.predict = partial(model.predict, max_length=args.max_length)
@@ -362,7 +365,7 @@ if __name__ == '__main__':
                 top_k=args.top_k,
                 save_qrels=False,
                 overwrite_results=args.overwrite_results,
-                previous_results=os.path.join(output_folder, f"{task_name}_qrels.json"),
+                previous_results=os.path.join(output_folder, f"{task_name}_predictions.json"),
             )
 
 

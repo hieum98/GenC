@@ -10,7 +10,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-55
+#SBATCH --array=0-11
 
 # Quick eval: 0-11
 # FEWSHOT: 0-9
@@ -145,7 +145,7 @@ REMAIN=(
 )
 
 # DS=${REMAIN[$SLURM_ARRAY_TASK_ID]}
-DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 # DS=${RETRIEVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
@@ -166,20 +166,35 @@ echo "Running evaluation for MTEB on $DS"
 #     --pipeline_parallel \
 #     --pooling_method mean
 
-# python -m eval.eval_mteb \
-#     --model_name_or_path checkpoint/edpo_msmarco_8b_instruct \
-#     --pretrained_type llama \
-#     --attn_implementation sdpa \
-#     --use_bidirectional \
-#     --task_names $DS \
-#     --instruction_set genclm \
-#     --instruction_format genclm \
-#     --batch_size 8 \
-#     --pipeline_parallel \
-#     --pooling_method mean
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/edpo_msmarco_8b_instruct \
+    --reranker_model_name_or_path checkpoint/edpo_msmarco_8b_instruct_gen \
+    --pretrained_type llama \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean \
+    --rerank
 
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/edpo_8b_instruct_hard \
+    --model_name_or_path checkpoint/edpo_msmarco_8b_instruct_joint \
+    --pretrained_type llama \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean \
+    --rerank
+
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/edpo_msmarco_8b_instruct_gen \
     --pretrained_type llama \
     --attn_implementation sdpa \
     --use_bidirectional \
@@ -190,17 +205,31 @@ python -m eval.eval_mteb \
     --pipeline_parallel \
     --pooling_method mean
 
-# python -m eval.eval_mteb \
-#     --model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct \
-#     --pretrained_type phi \
-#     --attn_implementation flash_attention_2 \
-#     --use_bidirectional \
-#     --task_names $DS \
-#     --instruction_set genclm \
-#     --instruction_format genclm \
-#     --batch_size 8 \
-#     --pipeline_parallel \
-#     --pooling_method mean
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct \
+    --reranker_model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct_gen \
+    --pretrained_type phi \
+    --attn_implementation flash_attention_2 \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean \
+    --rerank
+
+python -m eval.eval_mteb \
+    --model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct_gen \
+    --pretrained_type phi \
+    --attn_implementation flash_attention_2 \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean
 
 # python -m eval.eval_mteb \
 #     --model_name_or_path checkpoint/esft_1.5b_instruct \

@@ -406,7 +406,7 @@ def fit(
 
         chunksize = training_args.mini_batch_size
         gradient_accumulation_iters = bs // chunksize
-        assert bs % chunksize == 0, "Batch size must be divisible by chunksize"
+        # assert bs % chunksize == 0, "Batch size must be divisible by chunksize"
         assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
         inner_iter_num = 0

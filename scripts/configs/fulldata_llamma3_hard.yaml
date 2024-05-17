@@ -12,10 +12,11 @@ attn_implementation: sdpa
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
-temperature: 0.05
+temperature: 0.07
 # Lora setting
 use_lora: True
 emb_adapter_name: emb
+gen_adapter_name: gen
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -29,14 +30,14 @@ precision: bf16-true
 # FSDP args
 strategy: fsdp
 sharding_strategy: full_shard
-use_cpu_offload: True
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 
 #Training data args
 max_data_samples: 80000
 global_batch_size: 1024
-mini_batch_size: 1
+mini_batch_size: 2
 max_seq_length: 512
 num_train_epochs: 1
 max_steps: 5000

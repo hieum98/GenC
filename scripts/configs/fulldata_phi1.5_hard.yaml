@@ -1,22 +1,22 @@
 # Data args
-data_name: msmarco
-data_dir: dataset/msmarco
-train_file: msmarco_hard.jsonl
-val_file: msmarco_test.jsonl
-num_workers: 4
+data_name: genclm
+data_dir: dataset/GenCLM_v2/hard
+val_file: dataset/msmarco/msmarco_test.jsonl
+num_workers: 8
 
 # Model args
-model_name_or_path: meta-llama/Meta-Llama-3-8B-Instruct
-pretrained_type: llama
+model_name_or_path: microsoft/phi-1_5
+pretrained_type: phi
 use_bidirectional: True
-attn_implementation: sdpa
+attn_implementation: flash_attention_2
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
 temperature: 0.05
 # Lora setting
 use_lora: True
-emb_adapter_name: emb_msmarco
+emb_adapter_name: emb
+gen_adapter_name: gen
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -30,23 +30,24 @@ precision: bf16-true
 # FSDP args
 strategy: fsdp
 sharding_strategy: full_shard
-use_cpu_offload: True
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 576
-mini_batch_size: 2
+max_data_samples: 100000
+global_batch_size: 1024
+mini_batch_size: 8
 max_seq_length: 512
 num_train_epochs: 1
-max_steps: 500
+max_steps: 5000
 num_positive_samples: 1
-num_negative_samples: 1
-topk_neg: 1
+num_negative_samples: 3
+topk_neg: 3
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 8
+gc_mini_batch_size: 32
 
 # Objective args
 prompt_loss_weight: 0.0
