@@ -17,7 +17,6 @@ temperature: 0.05
 # Lora setting
 use_lora: True
 emb_adapter_name: emb_msmarco
-gen_adapter_name: gen_msmarco
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -31,7 +30,7 @@ precision: bf16-true
 # FSDP args
 strategy: fsdp
 sharding_strategy: full_shard
-use_cpu_offload: False
+use_cpu_offload: True
 no_sync: True
 low_memory: True
 

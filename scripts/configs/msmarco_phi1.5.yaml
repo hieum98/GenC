@@ -30,7 +30,7 @@ precision: bf16-true
 # FSDP args
 strategy: fsdp
 sharding_strategy: full_shard
-use_cpu_offload: True
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 

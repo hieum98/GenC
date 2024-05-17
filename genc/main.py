@@ -307,8 +307,7 @@ def setup(
     strategy = training_args.strategy
     if training_args.nodes > 1 or training_args.devices > 1:
         if training_args.strategy == 'fsdp':
-            cpu_offload=CPUOffload(offload_params=True) if training_args.use_cpu_offload else None,
-            auto_wrap_policy = get_wrapping_policy()
+            cpu_offload=CPUOffload(offload_params=True) if training_args.use_cpu_offload else False,
             # Config sharding strategy
             if training_args.sharding_strategy == "full_shard":
                 sharding_strategy = ShardingStrategy.FULL_SHARD
@@ -322,18 +321,19 @@ def setup(
                 sharding_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
             else:
                 raise ValueError("Invalid sharding strategy")
+            # Config auto wrap policy
             if model_args.pretrained_type == 'phi':
-                activation_checkpointing_policy = {PhiDecoderLayer}
+                block = {PhiDecoderLayer}
             elif model_args.pretrained_type == 'mistral':
-                activation_checkpointing_policy = {MistralDecoderLayer}
+                block = {MistralDecoderLayer}
             elif model_args.pretrained_type == 'llama':
-                activation_checkpointing_policy = {LlamaDecoderLayer}
+                block = {LlamaDecoderLayer}
                 
             strategy = FSDPStrategy(
                 cpu_offload=cpu_offload,
                 mixed_precision=mp_policy,
-                auto_wrap_policy=auto_wrap_policy,
-                activation_checkpointing_policy=activation_checkpointing_policy,
+                auto_wrap_policy=block,
+                activation_checkpointing_policy=block,
                 sharding_strategy=sharding_strategy,
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
                 state_dict_type="full",

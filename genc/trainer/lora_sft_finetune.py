@@ -98,7 +98,7 @@ def compute_kl_loss(
         emb_input_chunk["query_input_ids"], # [chunksize, max_length]
         emb_input_chunk["pos_input_ids"].view(-1, emb_input_chunk["pos_input_ids"].size(-1)), # [chunksize * 1, max_length]
         emb_input_chunk["neg_input_ids"].view(-1, emb_input_chunk["neg_input_ids"].size(-1)), # [chunksize * topk_neg, max_length]
-    ], dim=0) # [chunksize * (1 + 1 + topk_neg), max_length]
+    ], dim=0) # [chunksize + chunksize + chunksize * topk_neg, max_length]
     emb_attention_mask = torch.cat([
         emb_input_chunk["query_attention_mask"], 
         emb_input_chunk["pos_attention_mask"].view(-1, emb_input_chunk["pos_attention_mask"].size(-1)),
@@ -108,7 +108,7 @@ def compute_kl_loss(
         emb_input_chunk["query_prompt_length"], # [chunksize]
         emb_input_chunk["pos_prompt_length"].flatten(), # [chunksize * 1]
         emb_input_chunk["neg_prompt_length"].flatten(), # [chunksize * topk_neg]
-    ], dim=0) # [chunksize * (1 + 1 + topk_neg)]
+    ], dim=0) # [chunksize + chunksize + chunksize * topk_neg]
     emb_inputs = {
         "input_ids": emb_input_ids,
         "attention_mask": emb_attention_mask,
@@ -116,12 +116,20 @@ def compute_kl_loss(
         "is_emb": True,
     }
     model.set_adapter(emb_adapter_name)
-    emb_reps = model(**emb_inputs)['reps'] # [chunksize * (1 + 1 + topk_neg), d]
+    emb_reps = model(**emb_inputs)['reps'] # [chunksize + chunksize + chunksize*topk_neg, d]
+    query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
+    pos_reps = emb_reps[chunksize:chunksize*2] # [chunksize, emb_dim]
+    neg_reps = emb_reps[chunksize*2:] # [chunksize * topk_neg, emb_dim]
+    neg_reps = neg_reps.view(chunksize, -1, neg_reps.size(-1)) # [chunksize, topk_neg, emb_dim]
+    passage_reps = torch.cat([pos_reps.unsqueeze(1), neg_reps], dim=1) # [chunksize, 1 + topk_neg, emb_dim]
+    dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1) # [chunksize, 1 + topk_neg]
+    dual_score = torch.log_softmax(dual_score, dim=-1) # [chunksize, 1 + topk_neg]
+
     # Compute pair logits
     pair_input_ids = torch.cat([
         gen_input_chunk["choices_input_ids"].view(-1, gen_input_chunk["choices_input_ids"].size(-1)), # [chunksize, max_length]
         gen_input_chunk["rejects_input_ids"].view(-1, gen_input_chunk["rejects_input_ids"].size(-1)), # [chunksize * topk_neg, max_length]
-    ], dim=0)
+    ], dim=0) # [chunksize + chunksize * topk_neg, max_length]
     pair_attention_mask = torch.cat([
         gen_input_chunk["choices_attention_mask"].view(-1, gen_input_chunk["choices_attention_mask"].size(-1)),
         gen_input_chunk["rejects_attention_mask"].view(-1, gen_input_chunk["rejects_attention_mask"].size(-1)),
@@ -141,7 +149,7 @@ def compute_kl_loss(
     }
     model.set_adapter(gen_adapter_name)
     with torch.no_grad():
-        gen_logits = model(**pair_inputs)['logits'] # [chunksize * (1 + topk_neg), max_length, vocab_size]
+        gen_logits = model(**pair_inputs)['logits'] # [chunksize  + chunksize*topk_neg, max_length, vocab_size]
         gen_loss = []
         for i in range(gen_logits.size(0)):
             l = chunked_cross_entropy(
@@ -150,16 +158,14 @@ def compute_kl_loss(
                 loss_weight_mask=pair_loss_weight_mask[i],
             )
             gen_loss.append(l)
-        gen_loss = torch.stack(gen_loss, dim=0) # [chunksize * (1 + topk_neg)]
-        gen_score = 1 / torch.exp(gen_loss) # [chunksize * (1 + topk_neg)]
-        gen_score = gen_score.view(chunksize, -1)
-        gen_score = torch.softmax(gen_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
+        # log likelihood 
+        gen_score = -1 * torch.stack(gen_loss, dim=0) # [chunksize + chunksize*topk_neg]
+        gen_pos_score = gen_score[:chunksize] # [chunksize]
+        gen_neg_score = gen_score[chunksize:] # [chunksize * topk_neg]
+        gen_neg_score = gen_neg_score.view(chunksize, -1) # [chunksize, topk_neg]
+        gen_score = torch.cat([gen_pos_score.unsqueeze(1), gen_neg_score], dim=1) # [chunksize, 1 + topk_neg]
+        gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
     model.set_adapter(emb_adapter_name)
-
-    query_reps = emb_reps[:chunksize] # [chunksize, emb_dim]
-    passage_reps = emb_reps[chunksize:].reshape(chunksize, -1, emb_reps.size(-1)) # [chunksize, 1 + topk_neg, emb_dim]
-    dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1)
-    dual_score = torch.log_softmax(dual_score/temperature, dim=1) # [chunksize, 1 + topk_neg]    
     
     kl = torch.nn.KLDivLoss(reduction="batchmean")
     kl_loss = kl(dual_score, gen_score)

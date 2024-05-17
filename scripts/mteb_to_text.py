@@ -150,9 +150,10 @@ TASK_LIST_NAMES = [
 
 MODELS = [
     # 'edpo_1.5b_instruct',
-    'edpo_msmarco_1.5b_instruct',
-    'edpo_msmarco_8b_instruct',
+    # 'edpo_msmarco_1.5b_instruct',
     'edpo_8b_instruct_hard',
+    'edpo_msmarco_8b_instruct',
+    '8b_contrast'
 ]
 
 MODEL_TO_NAME = {

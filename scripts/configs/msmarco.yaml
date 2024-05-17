@@ -30,14 +30,14 @@ precision: bf16-true
 # FSDP args
 strategy: fsdp
 sharding_strategy: full_shard
-use_cpu_offload: True
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 
 #Training data args
 global_batch_size: 576
-mini_batch_size: 1
-max_seq_length: 2048
+mini_batch_size: 2
+max_seq_length: 512
 num_train_epochs: 1
 max_steps: 500
 num_positive_samples: 1
