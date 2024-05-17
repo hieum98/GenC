@@ -11,14 +11,14 @@ import lightning as L
 from lightning import seed_everything
 from lightning.fabric.strategies import FSDPStrategy
 from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser
-from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
-from transformers.models.phi.modeling_phi import PhiDecoderLayer
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from genc.data.base import DataModule
 from genc.data.genclm_data import GenCLMDataset
 from genc.data.msmarco import MSMARCODataset
 from genc.data.simcse import SimCSEDataset
+from genc.model.modeling_lamma_genc_lm import LlamaDecoderLayer
+from genc.model.modeling_mistral_genc_lm import MistralDecoderLayer
+from genc.model.modeling_phi_genc_lm import PhiDecoderLayer
 from genc.trainer.lora_sft_finetune import fit as sft_fit
 from genc.trainer.lora_dpo_finetune import fit as dpo_fit
 from genc.trainer.trainer_utils import (
@@ -170,6 +170,8 @@ def main(
             fabric.print("No reference model is provided. Using the same model for reference.")
 
     model = fabric.setup_module(model)
+    fabric.print("Model architecture after wrapping")
+    fabric.print(model)
 
     # Load the data
     train_dataloader, val_dataloader = get_dataloaders(fabric, data, tokenizer, training_args, model_args.pretrained_type)
