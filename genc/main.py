@@ -183,6 +183,7 @@ def main(
         training_args.num_train_epochs * steps_per_epoch, 
         (training_args.max_steps or float("inf"))
         )
+    warmup_steps = 0.1 * lr_max_steps
     fabric.print(f"Total number of training steps: {lr_max_steps}")
     # Config optimizer and scheduler
     lr = training_args.learning_rate
@@ -195,7 +196,7 @@ def main(
     optimizer = fabric.setup_optimizers(optimizer)
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=training_args.warmup_steps,
+        num_warmup_steps=warmup_steps,
         num_training_steps=lr_max_steps,
         )
     checkpoint_iter_num = 0

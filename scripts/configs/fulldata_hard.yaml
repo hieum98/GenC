@@ -47,11 +47,11 @@ topk_neg: 3
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 16
+gc_mini_batch_size: 32
 
 # Objective args
 prompt_loss_weight: 0.0
-gen_loss_weight: 0.5
+gen_loss_weight: 0.1
 kl_loss_weight: 1.0
 use_miner: True
 dpo_loss_type: sigmoid

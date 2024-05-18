@@ -90,7 +90,7 @@ def compute_kl_loss(
     chunksize: int,
     emb_adapter_name: str = "emb",
     gen_adapter_name: str = "gen",
-    temperature: float = 0.05,
+    temperature: float = 0.2,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -123,7 +123,7 @@ def compute_kl_loss(
     neg_reps = neg_reps.view(chunksize, -1, neg_reps.size(-1)) # [chunksize, topk_neg, emb_dim]
     passage_reps = torch.cat([pos_reps.unsqueeze(1), neg_reps], dim=1) # [chunksize, 1 + topk_neg, emb_dim]
     dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1) # [chunksize, 1 + topk_neg]
-    dual_score = torch.log_softmax(dual_score, dim=-1) # [chunksize, 1 + topk_neg]
+    dual_score = torch.log_softmax(dual_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
 
     # Compute pair logits
     pair_input_ids = torch.cat([
@@ -164,7 +164,7 @@ def compute_kl_loss(
         gen_neg_score = gen_score[chunksize:] # [chunksize * topk_neg]
         gen_neg_score = gen_neg_score.view(chunksize, -1) # [chunksize, topk_neg]
         gen_score = torch.cat([gen_pos_score.unsqueeze(1), gen_neg_score], dim=1) # [chunksize, 1 + topk_neg]
-        gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
+        gen_score = torch.softmax(gen_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
     model.set_adapter(emb_adapter_name)
     
     kl = torch.nn.KLDivLoss(reduction="batchmean")
@@ -219,6 +219,7 @@ def fit(
         (training_args.max_steps or float("inf"))
         )
     iter_num = 0
+    sft_num_steps = 0.3 * lr_max_steps
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     sft_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
@@ -338,17 +339,20 @@ def fit(
                 model.set_adapter(model_args.gen_adapter_name)
                 sft_loss = model(**chunk_inputs)['loss']
 
-                # KL loss
-                model.set_adapter(model_args.emb_adapter_name)
-                loss_kl = compute_kl_loss(
-                    model=model,
-                    emb_input_chunk=emb_input_chunk,
-                    gen_input_chunk=hard_gen_input_chunk,
-                    chunksize=chunksize,
-                    emb_adapter_name=model_args.emb_adapter_name,
-                    gen_adapter_name=model_args.gen_adapter_name,
-                    temperature=model_args.temperature,
-                )
+                if iter_num > sft_num_steps: # KL loss
+                    # KL loss
+                    model.set_adapter(model_args.emb_adapter_name)
+                    loss_kl = compute_kl_loss(
+                        model=model,
+                        emb_input_chunk=emb_input_chunk,
+                        gen_input_chunk=hard_gen_input_chunk,
+                        chunksize=chunksize,
+                        emb_adapter_name=model_args.emb_adapter_name,
+                        gen_adapter_name=model_args.gen_adapter_name,
+                        temperature=model_args.temperature,
+                    )
+                else:
+                    loss_kl = 0.0
 
                 loss = sft_loss * training_args.gen_loss_weight + loss_kl * training_args.kl_loss_weight
                 # Scaling with gradient accumulation

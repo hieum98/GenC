@@ -91,7 +91,7 @@ def compute_kl_loss(
     chunksize: int,
     emb_adapter_name: str = "emb",
     gen_adapter_name: str = "gen",
-    temperature: float = 0.05,
+    temperature: float = 0.2,
     ):
     # KL loss
     # Compute the embeddings for the query, positive and negative samples
@@ -124,7 +124,7 @@ def compute_kl_loss(
     neg_reps = neg_reps.view(chunksize, -1, neg_reps.size(-1)) # [chunksize, topk_neg, emb_dim]
     passage_reps = torch.cat([pos_reps.unsqueeze(1), neg_reps], dim=1) # [chunksize, 1 + topk_neg, emb_dim]
     dual_score = torch.cosine_similarity(query_reps.unsqueeze(1), passage_reps, dim=-1) # [chunksize, 1 + topk_neg]
-    dual_score = torch.log_softmax(dual_score, dim=-1) # [chunksize, 1 + topk_neg]
+    dual_score = torch.log_softmax(dual_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
 
     # Compute pair logits
     pair_input_ids = torch.cat([
@@ -165,7 +165,7 @@ def compute_kl_loss(
         gen_neg_score = gen_score[chunksize:] # [chunksize * topk_neg]
         gen_neg_score = gen_neg_score.view(chunksize, -1) # [chunksize, topk_neg]
         gen_score = torch.cat([gen_pos_score.unsqueeze(1), gen_neg_score], dim=1) # [chunksize, 1 + topk_neg]
-        gen_score = torch.softmax(gen_score, dim=-1) # [chunksize, 1 + topk_neg]
+        gen_score = torch.softmax(gen_score/temperature, dim=-1) # [chunksize, 1 + topk_neg]
     model.set_adapter(emb_adapter_name)
     
     kl = torch.nn.KLDivLoss(reduction="batchmean")
@@ -205,7 +205,6 @@ def compute_dpo_loss(
     }
     # The policy model forward pass
     all_policy_logits = model(**concat_inputs)['logits'] # [2 * chunksize, max_length, vocab_size]
-    choice_logits = all_policy_logits[:chunksize].clone() # [chunksize, max_length, vocab_size]
 
     # Compute the DPO loss
     all_policy_logps = get_batch_logps(
@@ -217,15 +216,6 @@ def compute_dpo_loss(
     )
     policy_choice_logps = all_policy_logps[:chunksize]
     policy_reject_logps = all_policy_logps[chunksize:]
-
-    # nll loss
-    choice_labels = concat_labels[:chunksize].clone() # [chunksize, max_length]
-    choice_loss_weight_mask = concat_loss_weight_mask[:chunksize].clone()
-    nll_loss = chunked_cross_entropy(
-        logits=choice_logits,
-        targets=choice_labels,
-        loss_weight_mask=choice_loss_weight_mask,
-    )
 
     #The reference model forward pass
     with torch.no_grad():
@@ -254,7 +244,7 @@ def compute_dpo_loss(
         label_smoothing=training_args.label_smoothing_factor,
         beta=training_args.dpo_beta,
     )
-    loss = dpo_losses.mean() + nll_loss
+    loss = dpo_losses.mean()
     return loss
 
 
@@ -305,6 +295,7 @@ def fit(
         (training_args.max_steps or float("inf"))
         )
     iter_num = 0
+    sft_num_steps = 0.3 * lr_max_steps
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     dpo_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
@@ -316,7 +307,7 @@ def fit(
     fabric.print("Start training with batch size:", training_args.batch_size(fabric.world_size))
     while iter_num < lr_max_steps:
         iter_num += 1
-        if iter_num < checkpoint_iter_num:
+        if iter_num <= checkpoint_iter_num:
             continue
         
         if refresh_sampler:
@@ -406,6 +397,7 @@ def fit(
 
         chunksize = training_args.mini_batch_size
         gradient_accumulation_iters = bs // chunksize
+        num_dpo_iter_per_step = 3
         # assert bs % chunksize == 0, "Batch size must be divisible by chunksize"
         assert gradient_accumulation_iters > 0, "Batch size must be greater than chunksize"
 
@@ -414,34 +406,49 @@ def fit(
             inner_iter_num += 1
             is_accumulating = ((inner_iter_num % gradient_accumulation_iters) != 0)
             with fabric.no_backward_sync(model, enabled=is_accumulating):
-                # KL loss
-                model.set_adapter(model_args.emb_adapter_name)
-                loss_kl = compute_kl_loss(
-                    model=model,
-                    emb_input_chunk=emb_input_chunk,
-                    gen_input_chunk=gen_input_chunk,
-                    chunksize=chunksize,
-                    emb_adapter_name=model_args.emb_adapter_name,
-                    gen_adapter_name=model_args.gen_adapter_name,
-                    temperature=model_args.temperature,
-                )
+                if iter_num < sft_num_steps: 
+                    chunk_inputs = {
+                    "input_ids": gen_input_chunk["input_ids"],
+                    "attention_mask": gen_input_chunk["attention_mask"],
+                    "labels": gen_input_chunk["labels"],
+                    "loss_weight_mask": gen_input_chunk["loss_weight_mask"],
+                    "is_gen": True,
+                    }
+                    model.set_adapter(model_args.gen_adapter_name)
+                    reranker_loss = model(**chunk_inputs)['loss'] 
+                    loss_kl = 0.0 # No KL loss in the first 25% of the training steps
+                else:
+                    # DPO loss
+                    # only do DPO on the last three chunks due to as https://arxiv.org/pdf/2404.14723 the DPO variant only needs for small number of iterations to converge
+                    if inner_iter_num > gradient_accumulation_iters - num_dpo_iter_per_step:
+                        model.set_adapter(model_args.gen_adapter_name)
+                        reranker_loss = compute_dpo_loss(
+                            model=model,
+                            ref_model=ref_model,
+                            gen_input_chunk=gen_input_chunk,
+                            chunksize=chunksize,
+                            training_args=training_args,
+                        )
+                    else:
+                        reranker_loss = 0.0
+                    # KL loss
+                    model.set_adapter(model_args.emb_adapter_name)
+                    loss_kl = compute_kl_loss(
+                        model=model,
+                        emb_input_chunk=emb_input_chunk,
+                        gen_input_chunk=gen_input_chunk,
+                        chunksize=chunksize,
+                        emb_adapter_name=model_args.emb_adapter_name,
+                        gen_adapter_name=model_args.gen_adapter_name,
+                    )
 
-                # DPO loss
-                model.set_adapter(model_args.gen_adapter_name)
-                dpo_losses = compute_dpo_loss(
-                    model=model,
-                    ref_model=ref_model,
-                    gen_input_chunk=gen_input_chunk,
-                    chunksize=chunksize,
-                    training_args=training_args,
-                )
-                loss = loss_kl * training_args.kl_loss_weight  + dpo_losses * training_args.gen_loss_weight
+                loss = loss_kl * training_args.kl_loss_weight  + reranker_loss * training_args.gen_loss_weight
                 # Scaling with gradient accumulation
                 loss = loss / gradient_accumulation_iters
                 fabric.backward(loss)
 
             kl_running_loss.update(loss_kl.detach())
-            dpo_running_loss.update(dpo_losses.detach())
+            dpo_running_loss.update(reranker_loss.detach())
 
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)

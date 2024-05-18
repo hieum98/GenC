@@ -513,8 +513,8 @@ def chunked_cross_entropy(
         return torch.cat(loss_chunks).sum() / non_masked_elems.maximum(torch.ones_like(non_masked_elems))
 
     # no chunking at all
-    logits = logits.reshape(-1, logits.size(-1))
-    targets = targets.reshape(-1)
+    logits = logits.reshape(-1, logits.size(-1)) # (batch_size * seq_len, vocab_size)
+    targets = targets.reshape(-1) # (batch_size * seq_len)
     loss_weight_mask = loss_weight_mask.reshape(-1) if loss_weight_mask is not None else None
     
     if chunk_size == 0:
@@ -525,8 +525,8 @@ def chunked_cross_entropy(
         return loss.mean()
 
     # lm_head wasn't chunked, chunk cross entropy
-    logit_chunks = logits.split(chunk_size)
-    target_chunks = targets.split(chunk_size)
+    logit_chunks = logits.split(chunk_size) # (num_chunks, chunk_size, vocab_size)
+    target_chunks = targets.split(chunk_size) # (num_chunks, chunk_size)
     loss_weight_mask_chunks = loss_weight_mask.split(chunk_size) if loss_weight_mask is not None else 1
     loss_chunks = [
         torch.nn.functional.cross_entropy(logit_chunk, target_chunk, ignore_index=ignore_index, reduction="none") * loss_weight_mask_chunk
