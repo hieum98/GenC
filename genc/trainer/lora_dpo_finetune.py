@@ -429,7 +429,7 @@ def fit(
                             training_args=training_args,
                         )
                     else:
-                        reranker_loss = 0.0
+                        reranker_loss = torch.tensor(0.0).to(fabric.device)
                 
                 if iter_num > training_args.warmup_steps:
                     model.set_adapter(model_args.emb_adapter_name)
@@ -442,7 +442,7 @@ def fit(
                         gen_adapter_name=model_args.gen_adapter_name,
                     )
                 else:
-                    loss_kl = 0.0
+                    loss_kl = torch.tensor(0.0).to(fabric.device)
 
                 loss = loss_kl * training_args.kl_loss_weight  + reranker_loss * training_args.gen_loss_weight
                 # Scaling with gradient accumulation

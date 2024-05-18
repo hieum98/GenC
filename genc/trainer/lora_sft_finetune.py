@@ -351,7 +351,7 @@ def fit(
                         temperature=model_args.temperature,
                     )
                 else:
-                    loss_kl = 0.0
+                    loss_kl = torch.tensor(0.0).to(fabric.device)
 
                 loss = sft_loss * training_args.gen_loss_weight + loss_kl * training_args.kl_loss_weight
                 # Scaling with gradient accumulation
