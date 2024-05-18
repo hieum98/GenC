@@ -295,7 +295,7 @@ def fit(
         (training_args.max_steps or float("inf"))
         )
     iter_num = 0
-    sft_num_steps = 0.3 * lr_max_steps
+    sft_num_steps = 0.5 * lr_max_steps
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     dpo_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
@@ -408,15 +408,14 @@ def fit(
             with fabric.no_backward_sync(model, enabled=is_accumulating):
                 if iter_num < sft_num_steps: 
                     chunk_inputs = {
-                    "input_ids": gen_input_chunk["input_ids"],
-                    "attention_mask": gen_input_chunk["attention_mask"],
-                    "labels": gen_input_chunk["labels"],
-                    "loss_weight_mask": gen_input_chunk["loss_weight_mask"],
+                    "input_ids": gen_input_chunk["choices_input_ids"][:, 0, :], # [chunksize, max_length]
+                    "attention_mask": gen_input_chunk["choices_attention_mask"][:, 0, :],
+                    "labels": gen_input_chunk["choices_labels"][:, 0, :],
+                    "loss_weight_mask": gen_input_chunk["choices_loss_weight_mask"][:, 0, :],
                     "is_gen": True,
                     }
                     model.set_adapter(model_args.gen_adapter_name)
                     reranker_loss = model(**chunk_inputs)['loss'] 
-                    loss_kl = 0.0 # No KL loss in the first 25% of the training steps
                 else:
                     # DPO loss
                     # only do DPO on the last three chunks due to as https://arxiv.org/pdf/2404.14723 the DPO variant only needs for small number of iterations to converge
@@ -431,7 +430,8 @@ def fit(
                         )
                     else:
                         reranker_loss = 0.0
-                    # KL loss
+                
+                if iter_num > training_args.warmup_steps:
                     model.set_adapter(model_args.emb_adapter_name)
                     loss_kl = compute_kl_loss(
                         model=model,
@@ -441,6 +441,8 @@ def fit(
                         emb_adapter_name=model_args.emb_adapter_name,
                         gen_adapter_name=model_args.gen_adapter_name,
                     )
+                else:
+                    loss_kl = 0.0
 
                 loss = loss_kl * training_args.kl_loss_weight  + reranker_loss * training_args.gen_loss_weight
                 # Scaling with gradient accumulation

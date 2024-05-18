@@ -219,7 +219,6 @@ def fit(
         (training_args.max_steps or float("inf"))
         )
     iter_num = 0
-    sft_num_steps = 0.3 * lr_max_steps
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
     sft_running_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
@@ -339,7 +338,7 @@ def fit(
                 model.set_adapter(model_args.gen_adapter_name)
                 sft_loss = model(**chunk_inputs)['loss']
 
-                if iter_num > sft_num_steps: # KL loss
+                if iter_num > training_args.warmup_steps: # KL loss
                     # KL loss
                     model.set_adapter(model_args.emb_adapter_name)
                     loss_kl = compute_kl_loss(
