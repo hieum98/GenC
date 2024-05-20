@@ -201,8 +201,11 @@ def load_model(
                     lora_config=lora_config,
                     adapter_name=gen_adapter_name
                 )
-        # Always set the emb adapter as the current adapter
-        model.set_adapter(emb_adapter_name)
+        # Always set the emb adapter as the current adapter if it exists else set the gen adapter
+        if emb_adapter_name is not None:
+            model.set_adapter(emb_adapter_name)
+        else:
+            model.set_adapter(gen_adapter_name)
         
         if rank==0:
             model.print_trainable_parameters()

@@ -1,4 +1,5 @@
 from collections import UserDict
+from contextlib import contextmanager
 import functools
 from itertools import repeat
 from tqdm.auto import tqdm
@@ -8,6 +9,7 @@ from typing_extensions import Self
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.utils.checkpoint import get_device_states, set_device_states
 from transformers.pytorch_utils import Conv1D
 from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, transformer_auto_wrap_policy
 import lightning as L
@@ -19,6 +21,9 @@ from transformers import PreTrainedModel
 # for the wrapping policy and `check_fn` in activation checkpointing
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LLAMA_ATTENTION_CLASSES, LlamaMLP
 from transformers.models.mistral.modeling_mistral import MistralDecoderLayer, MISTRAL_ATTENTION_CLASSES, MistralMLP
+
+from genc.model.layer import Linear
+from genc.model.lora_genc import LoRaGenc
 
 
 
@@ -171,6 +176,7 @@ def find_all_linear_names(model: nn.Module, quantization: Optional[bool] = False
         
     return list(lora_module_names)
 
+
 def get_trainable_parameters(model: PreTrainedModel) -> Tuple[int, int, float]:
     """
     Prints the number of trainable parameters in the model.
@@ -201,38 +207,20 @@ def get_trainable_parameters(model: PreTrainedModel) -> Tuple[int, int, float]:
 
 # Wrap the model using LoRA policy from llama-recipes or custom policy:
 # This checks for lora layers (has weight and requires_grad)
-def get_wrapping_policy(custom_policy:bool=False):
-    from peft.tuners import PromptEncoder, PromptEmbedding, PrefixEncoder
-
-    if custom_policy:
-        def lambda_policy_fn(module):
-            # LORA trainable layers.
-            return (isinstance(module, nn.Sequential) and all(m.weight.requires_grad for m in module))
-    else:
-        def lambda_policy_fn(module):
-            return (
-                len(list(module.named_children())) == 0
-                and getattr(module, "weight", None) is not None
-                and module.weight.requires_grad
-            )
-    def self_attn_policy_fn(module):
-        # Check module name is self_attn.
-        return isinstance(module, tuple(*LLAMA_ATTENTION_CLASSES.values(), *MISTRAL_ATTENTION_CLASSES.values()))
-
-    def mlp_policy_fn(module):
-        # Check module name is self_attn.
-        return isinstance(module, (LlamaMLP, MistralMLP))
-
+def get_wrapping_policy(transformer_layer_name:nn.Module):
+    def lambda_policy_fn(module):
+        return (
+            len(list(module.named_children())) == 0
+            and getattr(module, "weight", None) is not None
+            and module.weight.requires_grad
+        )
+    
     lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
-    self_attn_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=self_attn_policy_fn)
-    mlp_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=mlp_policy_fn)
     transformer_wrap_policy = functools.partial(
         transformer_auto_wrap_policy,
-        transformer_layer_cls=(LlamaDecoderLayer, MistralDecoderLayer),
+        transformer_layer_cls={transformer_layer_name},
     )
     policies=[lambda_policy, transformer_wrap_policy]
-    if custom_policy:
-        policies.extend([self_attn_policy, mlp_policy])
     return functools.partial(_or_policy, policies=policies)
 
 
@@ -253,7 +241,14 @@ def split_input(model_input, chunk_size: int) -> List:
         args_chunks = split_input(model_input[0], chunk_size)
         kwargs_chunks = split_input(model_input[1], chunk_size)
         return list(zip(args_chunks, kwargs_chunks))
-
+    
+    elif isinstance(model_input, tuple) and list(map(type, model_input)) == [dict, dict]:
+        args_chunks = split_input(model_input[0], chunk_size) # list of dicts
+        global_kwargs = model_input[1]
+        for args_chunk in args_chunks:
+            args_chunk.update(global_kwargs)
+        return args_chunks
+    
     else:
         raise NotImplementedError(f'Model input split not implemented for type {type(model_input)}')
 
@@ -271,7 +266,7 @@ def get_batch_logps(
     loss_weight_mask = loss_weight_mask[..., 1:].clone().contiguous() if loss_weight_mask is not None else None
     loss_mask = labels != label_pad_token_id
     loss_weight_mask = loss_weight_mask * loss_mask if loss_weight_mask is not None else loss_mask
-    logits = logits[:, :-1, :] # (batch_size, seq_len, vocab_size)
+    logits = logits[:, :-1, :].clone() # (batch_size, seq_len, vocab_size)
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == label_pad_token_id] = 0
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2) # (batch_size, seq_len)
@@ -459,87 +454,62 @@ def dpo_loss(
             raise ValueError(
                 f"Unknown loss type: {loss_type}. Should be one of ['sigmoid', 'hinge', 'ipo', 'kto_pair']"
             )
+        return losses, None, None
 
-        chosen_rewards = (
-            beta
-            * (
-                policy_chosen_logps - reference_chosen_logps
-            ).detach()
-        )
-        rejected_rewards = (
-            beta
-            * (
-                policy_rejected_logps
-                - reference_rejected_logps
-            ).detach()
-        )
-        return losses, chosen_rewards, rejected_rewards
 
 def chunked_cross_entropy(
-    logits: Union[torch.Tensor, List[torch.Tensor]],
+    logits: torch.Tensor,
     targets: torch.Tensor,
     loss_weight_mask: Optional[torch.Tensor] = None,
     chunk_size: int = 128,
     ignore_index: int = -100,
+    return_batch_loss: bool = False,
 ) -> torch.Tensor:
-    # with large max_sequence_lengths, the beginning of `backward` allocates a large memory chunk which can dominate
-    # the memory usage in fine-tuning settings with low number of parameters.
-    # as a workaround hack, the cross entropy computation is chunked to force it to deallocate on the go, reducing
-    # the memory spike's magnitude
+    bs = logits.size(0)
+    shift_logits = logits[..., :-1, :].clone().contiguous() # (batch_size, seq_len, vocab_size)
+    shift_labels = targets[..., 1:].clone().contiguous()
+    if loss_weight_mask is not None:
+        loss_weight_mask = loss_weight_mask[..., 1:].clone().contiguous()
+    # Flatten the tokens
+    shift_logits = shift_logits.view(-1, shift_logits.size(-1))
+    shift_labels = shift_labels.view(-1)
+    if loss_weight_mask is not None:
+        loss_weight_mask = loss_weight_mask.view(-1)
+    
+    loss_fct = nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+    loss = loss_fct(shift_logits, shift_labels) # (batch_size * seq_len,)
 
-    # lm_head was chunked (we are fine-tuning)
-    if isinstance(logits, list):
-        # don't want to chunk cross entropy
-        if chunk_size == 0:
-            logits = torch.cat(logits, dim=1)
-            logits = logits.reshape(-1, logits.size(-1))
-            targets = targets.reshape(-1)
-            loss_weight_mask = loss_weight_mask.reshape(-1) if loss_weight_mask is not None else None
-            loss = torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index, reduction='none')
-            if loss_weight_mask is not None:
-                loss = loss * loss_weight_mask
+    if return_batch_loss:
+        loss = loss.view(bs, -1)
+        loss_weight_mask = loss_weight_mask.view(bs, -1) if loss_weight_mask is not None else None
+        if loss_weight_mask is not None:
+            return (loss * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1) # (batch_size,)
+        else:
+            return loss.mean(-1) # (batch_size,)
+    else:
+        if loss_weight_mask is not None:
+            return (loss * loss_weight_mask).sum() / loss_weight_mask.sum()
+        else:
             return loss.mean()
 
-        # chunk cross entropy
-        logit_chunks = [logit_chunk.reshape(-1, logit_chunk.size(-1)) for logit_chunk in logits]
-        target_chunks = [target_chunk.reshape(-1) for target_chunk in targets.split(logits[0].size(1), dim=1)]
-        loss_weight_mask_chunks = [loss_weight_mask_chunk.reshape(-1) for loss_weight_mask_chunk in loss_weight_mask.split(logits[0].size(1), dim=1)] if loss_weight_mask is not None else 1
-        loss_chunks = [
-            torch.nn.functional.cross_entropy(logit_chunk, target_chunk, ignore_index=ignore_index, reduction="none") * loss_weight_mask_chunk
-            for logit_chunk, target_chunk, loss_weight_mask_chunk in zip(logit_chunks, target_chunks, loss_weight_mask_chunks)
-        ]
-        non_masked_elems = (targets != ignore_index).sum()
-        # See [non_masked_elems div note]
-        return torch.cat(loss_chunks).sum() / non_masked_elems.maximum(torch.ones_like(non_masked_elems))
 
-    # no chunking at all
-    logits = logits.reshape(-1, logits.size(-1)) # (batch_size * seq_len, vocab_size)
-    targets = targets.reshape(-1) # (batch_size * seq_len)
-    loss_weight_mask = loss_weight_mask.reshape(-1) if loss_weight_mask is not None else None
-    
-    if chunk_size == 0:
-        loss = torch.nn.functional.cross_entropy(logits, targets, ignore_index=ignore_index, reduction='none')
-        if loss_weight_mask is not None:
-            loss = loss * loss_weight_mask
-            return loss.sum() / loss_weight_mask.sum()
-        return loss.mean()
-
-    # lm_head wasn't chunked, chunk cross entropy
-    logit_chunks = logits.split(chunk_size) # (num_chunks, chunk_size, vocab_size)
-    target_chunks = targets.split(chunk_size) # (num_chunks, chunk_size)
-    loss_weight_mask_chunks = loss_weight_mask.split(chunk_size) if loss_weight_mask is not None else 1
-    loss_chunks = [
-        torch.nn.functional.cross_entropy(logit_chunk, target_chunk, ignore_index=ignore_index, reduction="none") * loss_weight_mask_chunk
-        for logit_chunk, target_chunk, loss_weight_mask_chunk in zip(logit_chunks, target_chunks, loss_weight_mask_chunks)
-    ]
-    non_masked_elems = (targets != ignore_index).to(torch.float)
-    non_masked_elems = non_masked_elems * loss_weight_mask if loss_weight_mask is not None else non_masked_elems
-    non_masked_elems = non_masked_elems.sum()
-    # [non_masked_elems div note]:
-    #   max(1, non_masked_elems) would be more ergonomic to avoid a division by zero. However that
-    #   results in a python int which is then passed back to torch division. By using the
-    #   `x.maximum(torch.ones_like(x))` pattern we avoid a cudaStreamSynchronize.
-    return torch.cat(loss_chunks).sum() / non_masked_elems.maximum(torch.ones_like(non_masked_elems))
+@contextmanager
+def lora_mananger(fabric: L.Fabric, model: LoRaGenc, active_lora_name: str=None):
+    """Context manager for handling peft adapter manipulation."""
+    try:
+        pervious_lora_name = model.activate_adpater
+        if active_lora_name:
+            model.set_adapter(active_lora_name)
+        else:
+            model.disable_adapter()
+        # wait for all processes to reach this point to make sure the model adapter is set correctly
+        fabric.barrier() 
+        yield
+    finally:
+        # reset the adapter to the pervious one if it was set
+        if pervious_lora_name:
+            model.set_adapter(pervious_lora_name)
+        fabric.barrier()
 
 def lora_filter(key: str, value: Any) -> bool:
     return "lora_" in key or 'lm_head' in key or 'embed_tokens' in key
@@ -575,4 +545,18 @@ class CycleIterator:
     def __iter__(self) -> Self:
         return self
 
+class RandContext:
+    def __init__(self, *tensors):
+        self.fwd_cpu_state = torch.get_rng_state()
+        self.fwd_gpu_devices, self.fwd_gpu_states = get_device_states(*tensors)
+
+    def __enter__(self):
+        self._fork = torch.random.fork_rng(devices=self.fwd_gpu_devices, enabled=True)
+        self._fork.__enter__()
+        torch.set_rng_state(self.fwd_cpu_state)
+        set_device_states(self.fwd_gpu_devices, self.fwd_gpu_states)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._fork.__exit__(exc_type, exc_val, exc_tb)
+        self._fork = None
 

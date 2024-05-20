@@ -1,14 +1,14 @@
 # Data args
 data_name: genclm
-data_dir: /home/hieum/uonlp/LLM_Emb/dataset/GenCLM_v2
-val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
-num_workers: 4
+data_dir: dataset/GenCLM_v2
+val_file: dataset/msmarco/msmarco_test.jsonl
+num_workers: 8
 
 # Model args
-model_name_or_path: microsoft/phi-1_5
-pretrained_type: phi
+model_name_or_path: meta-llama/Meta-Llama-3-8B-Instruct
+pretrained_type: llama
 use_bidirectional: True
-attn_implementation: flash_attention_2
+attn_implementation: sdpa
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
@@ -28,8 +28,8 @@ precision: bf16-true
 
 # FSDP args
 strategy: fsdp
-sharding_strategy: full_shard
-use_cpu_offload: True
+sharding_strategy: shard_grad_op
+use_cpu_offload: False # Always False if using gc because the gradient accumulation is not supported when using cpu offload
 no_sync: True
 low_memory: True
 
@@ -49,7 +49,7 @@ gc_mini_batch_size: 8
 
 # Objective args
 prompt_loss_weight: 0.0
-gen_loss_weight: 0.5
+gen_loss_weight: 0.1
 kl_loss_weight: 1.0
 use_miner: True
 dpo_loss_type: sigmoid
@@ -58,10 +58,10 @@ label_smoothing_factor: 0.1
 
 # Optimizer args
 learning_rate: 0.0002 # 2e-4@512
-warmup_steps: 100
+ 
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
-gradient_checkpointing: True
+gradient_checkpointing: False
 
 # Checkpointing args
 logger_name: wandb

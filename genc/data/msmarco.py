@@ -101,6 +101,7 @@ class MSMARCODataset(DataModule):
             num_positive_samples=self.num_positive_samples,
             max_seq_length=self.max_seq_length,
             prompt_loss_weight=self.prompt_loss_weight,
+            special_tokens=self.special_tokens,
         )
         
         self.val_dataset = EmbDataset(

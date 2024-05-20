@@ -1,21 +1,21 @@
 # Data args
-data_name: simcse
-data_dir: /home/hieum/uonlp/LLM_Emb/dataset/simcse/data
+data_name: genclm
+data_dir: /home/hieum/uonlp/LLM_Emb/dataset/GenCLM_v2
 val_file: /home/hieum/uonlp/LLM_Emb/dataset/msmarco/msmarco_test.jsonl
 num_workers: 4
 
 # Model args
-model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+model_name_or_path: microsoft/phi-1_5
+pretrained_type: phi
 use_bidirectional: True
-attn_implementation: sdpa
+attn_implementation: flash_attention_2
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
-temperature: 0.07
+temperature: 0.05
 # Lora setting
 use_lora: True
-emb_adapter_name: emb_simcse
-gen_adapter_name: gen_simcse
+emb_adapter_name: emb
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -28,28 +28,28 @@ precision: bf16-true
 
 # FSDP args
 strategy: fsdp
-sharding_strategy: full_shard
-use_cpu_offload: True
+sharding_strategy: shard_grad_op
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 512
-mini_batch_size: 4
-max_seq_length: 2048
+global_batch_size: 1024
+mini_batch_size: 2
+max_seq_length: 512
 num_train_epochs: 1
-max_steps: 500
+max_steps: 5000
 num_positive_samples: 1
 num_negative_samples: 1
 topk_neg: 1
 
 # Gradcache settings
 use_gc: True
-gc_mini_batch_size: 16
+gc_mini_batch_size: 8
 
 # Objective args
 prompt_loss_weight: 0.0
-gen_loss_weight: 1.0
+gen_loss_weight: 0.5
 kl_loss_weight: 1.0
 use_miner: True
 dpo_loss_type: sigmoid
@@ -57,11 +57,11 @@ dpo_beta: 0.1
 label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.00005 # 5e-5@32 # Previosly 2e-5
-warmup_steps: 100 # Previosly 50
+learning_rate: 0.0002 # 2e-4@512
+ 
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
-gradient_checkpointing: True
+gradient_checkpointing: False
 
 # Checkpointing args
 logger_name: wandb

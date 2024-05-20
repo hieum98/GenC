@@ -181,6 +181,12 @@ class LoRaGenc(torch.nn.Module):
             return getattr(self.model, name)
     
     def forward(self, *args, **kwargs):
+        adapter_name = kwargs.pop("adapter_name", None)
+        disable_adapter = kwargs.pop("disable_adapter", False)
+        if adapter_name is not None:
+            self.set_adapter(adapter_name)
+        if disable_adapter:
+            self.disable_adapter()
         return self.model.forward(*args, **kwargs)
 
     def merge_adapter(self, adapter_names: Optional[List[str]] = None):

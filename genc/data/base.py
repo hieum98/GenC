@@ -78,9 +78,13 @@ class DPOCDataset(Dataset):
         eot = special_tokens.get("eot", "")
         assistant_bos = special_tokens.get("assistant_bos", "")
         self.emb_prompt_format = bos + user_bos + "{prompt}" + "\n"
-        self.emb_example_format = self.emb_prompt_format + "{example}" + eot + eos
+        self.emb_example_format = bos + user_bos + "{prompt}" + "\n" + "{example}" + eot + eos
         self.gen_prompt_format = bos + user_bos + "{prompt}" + eot + assistant_bos
-        self.gen_example_format = self.gen_prompt_format + "{response}" + eot + eos
+        self.gen_example_format = bos + user_bos + "{prompt}" + eot + assistant_bos + "{response}" + eot + eos
+        print(f"Prompt: {self.emb_prompt_format}")
+        print(f"Example: {self.emb_example_format}")
+        print(f"Gen Prompt: {self.gen_prompt_format}")
+        print(f"Gen Example: {self.gen_example_format}")
 
     def __len__(self) -> int:
         return len(self.data)

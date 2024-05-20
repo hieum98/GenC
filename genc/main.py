@@ -9,18 +9,17 @@ from torch.distributed.fsdp import MixedPrecision
 from torch.distributed.fsdp.api import CPUOffload, ShardingStrategy
 import lightning as L
 from lightning import seed_everything
-from lightning.fabric.strategies import FSDPStrategy
+from lightning.fabric.strategies import FSDPStrategy, DDPStrategy
 from transformers import get_cosine_schedule_with_warmup, PreTrainedTokenizerBase, HfArgumentParser
 
 from genc.data.base import DataModule
 from genc.data.genclm_data import GenCLMDataset
 from genc.data.msmarco import MSMARCODataset
-from genc.data.simcse import SimCSEDataset
 from genc.model.modeling_lamma_genc_lm import LlamaDecoderLayer
 from genc.model.modeling_mistral_genc_lm import MistralDecoderLayer
 from genc.model.modeling_phi_genc_lm import PhiDecoderLayer
-from genc.trainer.lora_sft_finetune import fit as sft_fit
-from genc.trainer.lora_dpo_finetune import fit as dpo_fit
+from genc.trainer.gradcache_trainer import fit as genclm_fit
+from genc.trainer.sft_trainer import fit as sft_fit
 from genc.trainer.trainer_utils import (
     choose_logger,
     get_default_supported_precision,
@@ -53,7 +52,7 @@ def validate_and_correct_args(
     elif training_args.no_sync and gradient_accumulation_iters == 1:
         training_args.no_sync = False
 
-    if model_args.gen_adapter_name is None:
+    if model_args.gen_adapter_name is None and model_args.emb_adapter_name is not None:
         print("No adapter name for gen is provided. Using the same name for both embedding and generator adapters")
         model_args.gen_adapter_name = model_args.emb_adapter_name
     if model_args.emb_adapter_name is None and model_args.gen_adapter_name is None:
@@ -212,23 +211,21 @@ def main(
             fabric.load(optim_checkpoint_path, stage, strict=False)
 
     model = stage.pop("model")
-    if training_args.mode == 'esft':
+    if training_args.mode == 'sft':
         sft_fit(
             fabric=fabric,
             model=model,
-            tokenizer=tokenizer,
             stage=stage,
             train_dataloader=train_dataloader,
             val_dataloader=val_dataloader,
             model_args=model_args,
             training_args=training_args,
             validation_args=validation_args,
-        )
-    elif training_args.mode == 'edpo':
-        dpo_fit(
+            )
+    elif training_args.mode in ['esft', 'edpo']:
+        genclm_fit(
             fabric=fabric,
             model=model,
-            tokenizer=tokenizer,
             ref_model=ref_model,
             stage=stage,
             train_dataloader=train_dataloader,
@@ -236,7 +233,7 @@ def main(
             model_args=model_args,
             training_args=training_args,
             validation_args=validation_args,
-        )
+            )
     else:
         raise ValueError(f"Invalid mode {training_args.mode}")
 
@@ -278,14 +275,6 @@ def setup(
             ignore_index=data_args.ignore_index,
             max_data_samples=data_args.max_data_samples,
         )
-    elif data_args.data_name == 'simcse':
-        data = SimCSEDataset(
-            data_dir=data_args.data_dir,
-            val_file=data_args.val_file,
-            seed=training_args.seed,
-            num_workers=data_args.num_workers,
-            ignore_index=data_args.ignore_index,
-        )
     else:
         raise ValueError(f"We currently have not supported this dataset {data_args.data_name}")
 
@@ -326,21 +315,20 @@ def setup(
                 raise ValueError("Invalid sharding strategy")
             # Config auto wrap policy
             if model_args.pretrained_type == 'phi':
-                block = {PhiDecoderLayer}
+                wrapping_policy = get_wrapping_policy(PhiDecoderLayer)
             elif model_args.pretrained_type == 'mistral':
-                block = {MistralDecoderLayer}
+                wrapping_policy = get_wrapping_policy(MistralDecoderLayer)
             elif model_args.pretrained_type == 'llama':
-                block = {LlamaDecoderLayer}
+                wrapping_policy = get_wrapping_policy(LlamaDecoderLayer)
                 
             strategy = FSDPStrategy(
                 cpu_offload=cpu_offload,
                 mixed_precision=mp_policy,
-                auto_wrap_policy=block,
-                activation_checkpointing_policy=block,
+                auto_wrap_policy=wrapping_policy,
                 sharding_strategy=sharding_strategy,
                 limit_all_gathers=True, # See https://github.com/pytorch/pytorch/issues/91165
                 state_dict_type="full",
-                sync_module_states=training_args.low_memory,
+                sync_module_states=True,
             )
     else:
         strategy = "auto"

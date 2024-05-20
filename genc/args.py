@@ -144,7 +144,7 @@ class TrainingArguments():
         )
     mode: str = field(
         default='edpo',
-        metadata={"help": "The mode of training. Should be one of ['edpo', 'esft']"},
+        metadata={"help": "The mode of training. Should be one of ['edpo', 'esft', 'sft']"},
         )
     
     # FSDP settings
@@ -205,6 +205,10 @@ class TrainingArguments():
     topk_neg: Optional[int] = field(
         default=8,
         metadata={"help": "The number of negative samples to consider for KL divergence loss"},
+    )
+    num_dpo_step_per_batch: Optional[int] = field(
+        default=4,
+        metadata={"help": "The number of examples to consider for DPO loss."},
     )
 
     # Gradcache settings
@@ -271,10 +275,6 @@ class TrainingArguments():
     adam_beta2: float = field(
         default=0.999,
         metadata={"help": "Beta2 for the Adam optimizer."},
-        )
-    warmup_steps: int = field(
-        default=100,
-        metadata={"help": "Linear warmup over warmup_steps."},
         )
     apply_gradient_clipping: Optional[bool] = field(
         default=False,

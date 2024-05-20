@@ -94,10 +94,32 @@ class MistralEmbeddingLM(MistralForCausalLM):
         if recast: return embedding.to(hidden_state.dtype)
         return embedding
     
+    def encode_from_hidden_state(
+            self,
+            hidden_state: torch.Tensor,
+            prompt_length: Optional[torch.Tensor] = None,
+    ):
+        # Pool the hidden states
+        # Mask the prompt tokens
+        if prompt_length is not None:
+            attention_mask = attention_mask.clone()
+            for i, l in enumerate(prompt_length):
+                attention_mask[i, :l] = 0
+                # Make sure not all zeros - If this happens it is a bug
+                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
+        reps = self.pooling(hidden_state, attention_mask)
+        # Normalize the embeddings
+        if self.normalized:
+            in_dtype = reps.dtype
+            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
+            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        return reps.contiguous()
+    
     def encode(self,
                input_ids: torch.Tensor,
                attention_mask: torch.Tensor,
                prompt_length: Optional[torch.Tensor] = None,
+               return_last_hidden_state: bool = False,
                ) -> torch.Tensor:
         """
         Encode and pool the input sequence for embedding tasks.
@@ -123,23 +145,15 @@ class MistralEmbeddingLM(MistralForCausalLM):
                   'return_dict': True,}
         if self.is_causal:
             kwargs['is_causal'] = True
-        outputs = self.model(**kwargs).last_hidden_state
+        outputs = self.model(**kwargs).last_hidden_state # [b, n, d]
 
-        # Pool the hidden states
-        # Mask the prompt tokens
-        if prompt_length is not None:
-            attention_mask = attention_mask.clone()
-            for i, l in enumerate(prompt_length):
-                attention_mask[i, :l] = 0
-                # Make sure not all zeros - If this happens it is a bug
-                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
-        reps = self.pooling(outputs, attention_mask)
-        # Normalize the embeddings
-        if self.normalized:
-            in_dtype = reps.dtype
-            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
-            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        reps = self.encode_from_hidden_state(
+            hidden_state=outputs,
+            prompt_length=prompt_length,
+        )
         
+        if return_last_hidden_state:
+            return reps.contiguous(), outputs
         return reps.contiguous()
     
     def cons_loss_fn(self, reps: torch.Tensor, constrastive_labels: torch.Tensor, use_miner: bool = False) -> torch.Tensor:
@@ -169,6 +183,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
         constrastive_labels: Optional[torch.LongTensor] = None,
         loss_weight_mask: Optional[torch.Tensor] = None,
         prompt_length: Optional[torch.Tensor] = None,
+        hidden_states: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -197,37 +212,36 @@ class MistralEmbeddingLM(MistralForCausalLM):
             "loss": None,
             "logits": None,
             "past_key_values": None,
-            "hidden_states": None,
+            "hidden_states_gen": None,
+            "hidden_states_emb": None,
             "attentions": None,
             "loss_emb": None,
             "reps": None
         }
 
         if is_gen:
-            gen_kwargs = {
-                "return_dict": return_dict,
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "inputs_embeds": inputs_embeds,
-                "use_cache": use_cache,
-                "output_attentions": output_attentions,
-                "output_hidden_states": output_hidden_states
-            }
-            gen_outputs = super().forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **gen_kwargs
-            )
-            logits = gen_outputs.logits # [b, n, vocab_size]
-            # mask = torch.zeros_like(logits)
-            # added_tokens_ids = list(set(self.tokenizer.get_added_vocab().values()))
-            # mask[:, :, added_tokens_ids] = 1
-            # non_trainable_logits = logits.clone().detach()
-            # logits = logits * mask + (1 - mask) * non_trainable_logits
-
-            # Map all properties from the gen_outputs to the output
-            for k, v in gen_outputs.items():
-                output[k] = v
+            if hidden_states is not None:
+                logits = self.lm_head(hidden_states)
+                logits = logits.float()
+            else:
+                gen_kwargs = {
+                    "return_dict": return_dict,
+                    "position_ids": position_ids,
+                    "past_key_values": past_key_values,
+                    "inputs_embeds": inputs_embeds,
+                    "use_cache": use_cache,
+                    "output_attentions": output_attentions,
+                    "output_hidden_states": output_hidden_states
+                }
+                gen_outputs = super().forward(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    **gen_kwargs
+                )
+                logits = gen_outputs.logits # [b, n, vocab_size]
+                hidden_states = gen_outputs.hidden_states # [b, n, d]
+            output['logits'] = logits
+            output['hidden_states_gen'] = hidden_states
             if labels is not None:
                 loss_gen = self.gen_loss_fn(labels, logits, loss_weight_mask)
                 output['loss'] = loss_gen
@@ -236,8 +250,12 @@ class MistralEmbeddingLM(MistralForCausalLM):
             if input_reps is not None:
                 reps = input_reps
             else:
-                reps = self.encode(input_ids, attention_mask, prompt_length)
+                if hidden_states is not None:
+                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                else:
+                    reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps
+            output['hidden_states_emb'] = hidden_state
             if constrastive_labels is not None:
                 loss_emb = self.cons_loss_fn(reps, constrastive_labels, use_miner)
                 output['loss_emb'] = loss_emb
@@ -364,10 +382,32 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
         if recast: return embedding.to(hidden_state.dtype)
         return embedding
     
+    def encode_from_hidden_state(
+            self,
+            hidden_state: torch.Tensor,
+            prompt_length: Optional[torch.Tensor] = None,
+    ):
+        # Pool the hidden states
+        # Mask the prompt tokens
+        if prompt_length is not None:
+            attention_mask = attention_mask.clone()
+            for i, l in enumerate(prompt_length):
+                attention_mask[i, :l] = 0
+                # Make sure not all zeros - If this happens it is a bug
+                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
+        reps = self.pooling(hidden_state, attention_mask)
+        # Normalize the embeddings
+        if self.normalized:
+            in_dtype = reps.dtype
+            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
+            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        return reps.contiguous()
+    
     def encode(self,
                input_ids: torch.Tensor,
                attention_mask: torch.Tensor,
                prompt_length: Optional[torch.Tensor] = None,
+               return_last_hidden_state: bool = False,
                ) -> torch.Tensor:
         """
         Encode and pool the input sequence for embedding tasks.
@@ -393,23 +433,15 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
                   'return_dict': True,}
         if self.is_causal:
             kwargs['is_causal'] = True
-        outputs = self.model(**kwargs).last_hidden_state
+        outputs = self.model(**kwargs).last_hidden_state # [b, n, d]
 
-        # Pool the hidden states
-        # Mask the prompt tokens
-        if prompt_length is not None:
-            attention_mask = attention_mask.clone()
-            for i, l in enumerate(prompt_length):
-                attention_mask[i, :l] = 0
-                # Make sure not all zeros - If this happens it is a bug
-                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
-        reps = self.pooling(outputs, attention_mask)
-        # Normalize the embeddings
-        if self.normalized:
-            in_dtype = reps.dtype
-            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
-            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        reps = self.encode_from_hidden_state(
+            hidden_state=outputs,
+            prompt_length=prompt_length,
+        )
         
+        if return_last_hidden_state:
+            return reps.contiguous(), outputs
         return reps.contiguous()
     
     def cons_loss_fn(self, reps: torch.Tensor, constrastive_labels: torch.Tensor, use_miner: bool = False) -> torch.Tensor:
@@ -439,6 +471,7 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
         constrastive_labels: Optional[torch.LongTensor] = None,
         loss_weight_mask: Optional[torch.Tensor] = None,
         prompt_length: Optional[torch.Tensor] = None,
+        hidden_states: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -467,45 +500,36 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
             "loss": None,
             "logits": None,
             "past_key_values": None,
-            "hidden_states": None,
+            "hidden_states_gen": None,
+            "hidden_states_emb": None,
             "attentions": None,
             "loss_emb": None,
             "reps": None
         }
 
         if is_gen:
-            # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
-            # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
-            # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device) # [b, n]
-            # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, self.config.hidden_size) # [b, n, d]
-            # inputs_embeds = self.model.embed_tokens(input_ids)
-            # non_trainable_inputs_embeds = inputs_embeds.clone().detach() # [b, n, d]
-            # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
-
-            gen_kwargs = {
-                "return_dict": return_dict,
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "inputs_embeds": inputs_embeds,
-                "use_cache": use_cache,
-                "output_attentions": output_attentions,
-                "output_hidden_states": output_hidden_states
-            }
-            gen_outputs = super().forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **gen_kwargs
-            )
-            logits = gen_outputs.logits # [b, n, vocab_size]
-            # mask = torch.zeros_like(logits)
-            # added_tokens_ids = list(set(self.tokenizer.get_added_vocab().values()))
-            # mask[:, :, added_tokens_ids] = 1
-            # non_trainable_logits = logits.clone().detach()
-            # logits = logits * mask + (1 - mask) * non_trainable_logits
-
-            # Map all properties from the gen_outputs to the output
-            for k, v in gen_outputs.items():
-                output[k] = v
+            if hidden_states is not None:
+                logits = self.lm_head(hidden_states)
+                logits = logits.float()
+            else:
+                gen_kwargs = {
+                    "return_dict": return_dict,
+                    "position_ids": position_ids,
+                    "past_key_values": past_key_values,
+                    "inputs_embeds": inputs_embeds,
+                    "use_cache": use_cache,
+                    "output_attentions": output_attentions,
+                    "output_hidden_states": output_hidden_states
+                }
+                gen_outputs = super().forward(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    **gen_kwargs
+                )
+                logits = gen_outputs.logits # [b, n, vocab_size]
+                hidden_states = gen_outputs.hidden_states # [b, n, d]
+            output['logits'] = logits
+            output['hidden_states_gen'] = hidden_states
             if labels is not None:
                 loss_gen = self.gen_loss_fn(labels, logits, loss_weight_mask)
                 output['loss'] = loss_gen
@@ -514,8 +538,12 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
             if input_reps is not None:
                 reps = input_reps
             else:
-                reps = self.encode(input_ids, attention_mask, prompt_length)
+                if hidden_states is not None:
+                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                else:
+                    reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps
+            output['hidden_states_emb'] = hidden_state
             if constrastive_labels is not None:
                 loss_emb = self.cons_loss_fn(reps, constrastive_labels, use_miner)
                 output['loss_emb'] = loss_emb
@@ -642,10 +670,32 @@ class PhiEmbeddingLM(PhiForCausalLM):
         if recast: return embedding.to(hidden_state.dtype)
         return embedding
     
+    def encode_from_hidden_state(
+            self,
+            hidden_state: torch.Tensor,
+            prompt_length: Optional[torch.Tensor] = None,
+    ):
+        # Pool the hidden states
+        # Mask the prompt tokens
+        if prompt_length is not None:
+            attention_mask = attention_mask.clone()
+            for i, l in enumerate(prompt_length):
+                attention_mask[i, :l] = 0
+                # Make sure not all zeros - If this happens it is a bug
+                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
+        reps = self.pooling(hidden_state, attention_mask)
+        # Normalize the embeddings
+        if self.normalized:
+            in_dtype = reps.dtype
+            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
+            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        return reps.contiguous()
+    
     def encode(self,
                input_ids: torch.Tensor,
                attention_mask: torch.Tensor,
                prompt_length: Optional[torch.Tensor] = None,
+               return_last_hidden_state: bool = False,
                ) -> torch.Tensor:
         """
         Encode and pool the input sequence for embedding tasks.
@@ -657,29 +707,29 @@ class PhiEmbeddingLM(PhiForCausalLM):
         Returns:
             hidden_state: [b, d]
         """
+        # Maskout the trained tokens (i.e, the tokens in the pretrained vocab)
+        # added_token_ids = torch.tensor(list(set(self.tokenizer.get_added_vocab().values()))).to(input_ids.device)
+        # added_token_mask = torch.isin(input_ids, added_token_ids).long().to(input_ids.device)
+        # inputs_embeds = self.model.embed_tokens(input_ids)
+        # added_token_mask = added_token_mask.unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1)) # [b, n, d]
+        # non_trainable_inputs_embeds = inputs_embeds.clone().detach()
+        # inputs_embeds = inputs_embeds * added_token_mask + (1 - added_token_mask) * non_trainable_inputs_embeds
+        
         # Get the hidden states
         kwargs = {'input_ids': input_ids, 
                   'attention_mask': attention_mask,
                   'return_dict': True,}
         if self.is_causal:
             kwargs['is_causal'] = True
-        outputs = self.model(**kwargs).last_hidden_state
+        outputs = self.model(**kwargs).last_hidden_state # [b, n, d]
 
-        # Pool the hidden states
-        # Mask the prompt tokens
-        if prompt_length is not None:
-            attention_mask = attention_mask.clone()
-            for i, l in enumerate(prompt_length):
-                attention_mask[i, :l] = 0
-                # Make sure not all zeros - If this happens it is a bug
-                assert attention_mask[i].sum() > 0, "You have all zeros in the attention mask!"
-        reps = self.pooling(outputs, attention_mask)
-        # Normalize the embeddings
-        if self.normalized:
-            in_dtype = reps.dtype
-            # Normalize can change the dtype (https://discuss.pytorch.org/t/tensor-in-float16-is-transformed-into-float32-after-torch-norm/110891)
-            return torch.nn.functional.normalize(reps, dim=-1).contiguous().to(in_dtype)
+        reps = self.encode_from_hidden_state(
+            hidden_state=outputs,
+            prompt_length=prompt_length,
+        )
         
+        if return_last_hidden_state:
+            return reps.contiguous(), outputs
         return reps.contiguous()
     
     def cons_loss_fn(self, reps: torch.Tensor, constrastive_labels: torch.Tensor, use_miner: bool = False) -> torch.Tensor:
@@ -709,6 +759,7 @@ class PhiEmbeddingLM(PhiForCausalLM):
         constrastive_labels: Optional[torch.LongTensor] = None,
         loss_weight_mask: Optional[torch.Tensor] = None,
         prompt_length: Optional[torch.Tensor] = None,
+        hidden_states: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -737,31 +788,36 @@ class PhiEmbeddingLM(PhiForCausalLM):
             "loss": None,
             "logits": None,
             "past_key_values": None,
-            "hidden_states": None,
+            "hidden_states_gen": None,
+            "hidden_states_emb": None,
             "attentions": None,
             "loss_emb": None,
             "reps": None
         }
 
         if is_gen:
-            gen_kwargs = {
-                "return_dict": return_dict,
-                "position_ids": position_ids,
-                "past_key_values": past_key_values,
-                "inputs_embeds": inputs_embeds,
-                "use_cache": use_cache,
-                "output_attentions": output_attentions,
-                "output_hidden_states": output_hidden_states
-            }
-            gen_outputs = super().forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                **gen_kwargs
-            )
-            logits = gen_outputs.logits # [b, n, vocab_size]
-            # Map all properties from the gen_outputs to the output
-            for k, v in gen_outputs.items():
-                output[k] = v
+            if hidden_states is not None:
+                logits = self.lm_head(hidden_states)
+                logits = logits.float()
+            else:
+                gen_kwargs = {
+                    "return_dict": return_dict,
+                    "position_ids": position_ids,
+                    "past_key_values": past_key_values,
+                    "inputs_embeds": inputs_embeds,
+                    "use_cache": use_cache,
+                    "output_attentions": output_attentions,
+                    "output_hidden_states": output_hidden_states
+                }
+                gen_outputs = super().forward(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    **gen_kwargs
+                )
+                logits = gen_outputs.logits # [b, n, vocab_size]
+                hidden_states = gen_outputs.hidden_states # [b, n, d]
+            output['logits'] = logits
+            output['hidden_states_gen'] = hidden_states
             if labels is not None:
                 loss_gen = self.gen_loss_fn(labels, logits, loss_weight_mask)
                 output['loss'] = loss_gen
@@ -770,8 +826,12 @@ class PhiEmbeddingLM(PhiForCausalLM):
             if input_reps is not None:
                 reps = input_reps
             else:
-                reps = self.encode(input_ids, attention_mask, prompt_length)
+                if hidden_states is not None:
+                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                else:
+                    reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps
+            output['hidden_states_emb'] = hidden_state
             if constrastive_labels is not None:
                 loss_emb = self.cons_loss_fn(reps, constrastive_labels, use_miner)
                 output['loss_emb'] = loss_emb
