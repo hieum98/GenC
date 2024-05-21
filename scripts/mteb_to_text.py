@@ -149,7 +149,7 @@ TASK_LIST_NAMES = [
 ]
 
 MODELS = [
-    'edpo_msmarco_8b_instruct',
+    'edpo_msmarco_1.5b_instruct_v0',
     'edpo_msmarco_1.5b_instruct'
 ]
 

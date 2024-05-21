@@ -281,6 +281,9 @@ class GradCacheTrainer:
                 )
             else:
                 reranker_loss = torch.tensor(0.0, device=reranker_logits.device)
+            # check if the reranker_loss is nan
+            if torch.isnan(reranker_loss):
+                reranker_loss = torch.tensor(0.0, device=reranker_loss.device)
             
             #KL loss
             dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
@@ -289,6 +292,10 @@ class GradCacheTrainer:
             reranker_probs = torch.softmax(reranker_scores, dim=-1) # [bs, num_pos + num_neg]
             kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
             kl_loss = kl_loss_func(dual_logps, reranker_probs)
+            # check if the kl_loss is nan
+            if torch.isnan(kl_loss):
+                kl_loss = torch.tensor(0.0, device=kl_loss.device)
+
 
             loss = training_args.kl_loss_weight * kl_loss + training_args.gen_loss_weight * reranker_loss
             loss = loss / gradient_accumulation_iters
