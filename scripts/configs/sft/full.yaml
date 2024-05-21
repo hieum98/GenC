@@ -37,7 +37,7 @@ low_memory: True
 #Training data args
 max_data_samples: 100000
 global_batch_size: 512
-mini_batch_size: 4
+mini_batch_size: 16
 max_seq_length: 512
 num_train_epochs: 1
 max_steps: 200
