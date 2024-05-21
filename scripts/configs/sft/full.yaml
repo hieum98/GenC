@@ -1,21 +1,22 @@
 # Data args
+# Data args
 data_name: genclm
-data_dir: dataset/GenCLM_v2
+data_dir: dataset/GenCLM_v2/hard
 val_file: dataset/msmarco/msmarco_test.jsonl
 num_workers: 8
 
 # Model args
-model_name_or_path: meta-llama/Meta-Llama-3-8B-Instruct
-pretrained_type: llama
+model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+pretrained_type: mistral
 use_bidirectional: True
 attn_implementation: sdpa
 normalized: True
 pooling_method: mean
 loss_gen_type: mixed
-temperature: 0.05
+temperature: 0.1
 # Lora setting
 use_lora: True
-emb_adapter_name: emb
+gen_adapter_name: gen_msmarco
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.1
@@ -28,36 +29,26 @@ precision: bf16-true
 
 # FSDP args
 strategy: fsdp
-sharding_strategy: shard_grad_op
-use_cpu_offload: False # Always False if using gc because the gradient accumulation is not supported when using cpu offload
+sharding_strategy: full_shard
+use_cpu_offload: False
 no_sync: True
 low_memory: True
 
 #Training data args
-global_batch_size: 1024
-mini_batch_size: 2
+max_data_samples: 100000
+global_batch_size: 512
+mini_batch_size: 4
 max_seq_length: 512
 num_train_epochs: 1
-max_steps: 5000
+max_steps: 200
 num_positive_samples: 1
-num_negative_samples: 1
-topk_neg: 1
-
-# Gradcache settings
-use_gc: True
-gc_mini_batch_size: 8
+num_negative_samples: 1 
 
 # Objective args
 prompt_loss_weight: 0.0
-gen_loss_weight: 0.1
-kl_loss_weight: 1.0
-use_miner: True
-dpo_loss_type: sigmoid
-dpo_beta: 0.1
-label_smoothing_factor: 0.1
 
 # Optimizer args
-learning_rate: 0.0002 # 2e-4@512
+learning_rate: 0.0001 
  
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
@@ -65,10 +56,5 @@ gradient_checkpointing: False
 
 # Checkpointing args
 logger_name: wandb
-save_interval: 50
+save_interval: 100
 log_interval: 1
-
-
-
-
-

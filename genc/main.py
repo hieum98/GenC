@@ -242,6 +242,46 @@ def main(
     save_full_path.parent.mkdir(parents=True, exist_ok=True)
     print("Saving full model weights to", save_full_path)
     fabric.save(save_full_path, {'model':model}, filter={"model": lora_filter})
+    fabric.barrier()
+    # Clean up the gpu memory
+    del model
+    torch.cuda.empty_cache()
+    # Reload the model from final checkpoint, merge the adapters and save only do on rank 0
+    if fabric.global_rank == 0:
+        model, tokenizer = load_model(
+            model_weights_name_or_path=model_args.model_name_or_path,
+            pretrained_type=model_args.pretrained_type,
+            use_bidirectional=model_args.use_bidirectional,
+            normalized=model_args.normalized,
+            pooling_method=model_args.pooling_method,
+            loss_gen_type=model_args.loss_gen_type,
+            temperature=model_args.temperature,
+            quantization=model_args.quantization,
+            use_lora=model_args.use_lora,
+            emb_adapter_name=model_args.emb_adapter_name,
+            gen_adapter_name=model_args.gen_adapter_name,
+            lora_target_modules=["all"],
+            lora_r=model_args.lora_r,
+            lora_alpha=model_args.lora_alpha,
+            lora_dropout=model_args.lora_dropout,
+            inference=False,
+            low_memory=training_args.low_memory,
+            torch_dtype=torch_dtype,
+            compute_dtype=compute_dtype,
+            precision=training_args.precision,
+            rank=fabric.global_rank,
+            local_rank=fabric.local_rank,
+            gradient_checkpointing=training_args.gradient_checkpointing,
+            attn_implementation=model_args.attn_implementation,
+        )
+        checkpoint = torch.load(save_full_path, map_location='cpu')
+        model.load_state_dict(checkpoint['model'], strict=False)
+        to_merge_adapter = model_args.emb_adapter_name if training_args.mode != 'sft' else model_args.gen_adapter_name
+        model = model.merge_and_unload(adapter_names=[to_merge_adapter], progressbar=True)
+        save_dir = Path(training_args.output_dir) / 'full_model'
+        model.save_pretrained(save_dir)
+        tokenizer.save_pretrained(save_dir)
+        fabric.print(f"Model and tokenizer are saved to {save_dir}")
 
 def setup(
     data_args: DataArguments,

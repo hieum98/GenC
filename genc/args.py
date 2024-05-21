@@ -202,10 +202,6 @@ class TrainingArguments():
         default=8,
         metadata={"help": "The number of negative samples to consider for constrastive loss."},
         )
-    topk_neg: Optional[int] = field(
-        default=8,
-        metadata={"help": "The number of negative samples to consider for KL divergence loss"},
-    )
     num_dpo_step_per_batch: Optional[int] = field(
         default=4,
         metadata={"help": "The number of examples to consider for DPO loss."},

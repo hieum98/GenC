@@ -97,6 +97,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
     def encode_from_hidden_state(
             self,
             hidden_state: torch.Tensor,
+            attention_mask: torch.Tensor,
             prompt_length: Optional[torch.Tensor] = None,
     ):
         # Pool the hidden states
@@ -149,6 +150,7 @@ class MistralEmbeddingLM(MistralForCausalLM):
 
         reps = self.encode_from_hidden_state(
             hidden_state=outputs,
+            attention_mask=attention_mask,
             prompt_length=prompt_length,
         )
         
@@ -249,9 +251,14 @@ class MistralEmbeddingLM(MistralForCausalLM):
         if is_emb:
             if input_reps is not None:
                 reps = input_reps
+                hidden_state = None
             else:
                 if hidden_states is not None:
-                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                    reps = self.encode_from_hidden_state(
+                        hidden_state=hidden_states,
+                        attention_mask=attention_mask,
+                        prompt_length=prompt_length,
+                    )
                 else:
                     reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps
@@ -385,6 +392,7 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
     def encode_from_hidden_state(
             self,
             hidden_state: torch.Tensor,
+            attention_mask: torch.Tensor,
             prompt_length: Optional[torch.Tensor] = None,
     ):
         # Pool the hidden states
@@ -437,6 +445,7 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
 
         reps = self.encode_from_hidden_state(
             hidden_state=outputs,
+            attention_mask=attention_mask,
             prompt_length=prompt_length,
         )
         
@@ -537,9 +546,14 @@ class LlamaEmbeddingLM(LlamaForCausalLM):
         if is_emb:
             if input_reps is not None:
                 reps = input_reps
+                hidden_state = None
             else:
                 if hidden_states is not None:
-                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                    reps = self.encode_from_hidden_state(
+                        hidden_state=hidden_states,
+                        attention_mask=attention_mask,
+                        prompt_length=prompt_length,
+                    )
                 else:
                     reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps
@@ -673,6 +687,7 @@ class PhiEmbeddingLM(PhiForCausalLM):
     def encode_from_hidden_state(
             self,
             hidden_state: torch.Tensor,
+            attention_mask: torch.Tensor,
             prompt_length: Optional[torch.Tensor] = None,
     ):
         # Pool the hidden states
@@ -725,6 +740,7 @@ class PhiEmbeddingLM(PhiForCausalLM):
 
         reps = self.encode_from_hidden_state(
             hidden_state=outputs,
+            attention_mask=attention_mask,
             prompt_length=prompt_length,
         )
         
@@ -825,9 +841,14 @@ class PhiEmbeddingLM(PhiForCausalLM):
         if is_emb:
             if input_reps is not None:
                 reps = input_reps
+                hidden_state = None
             else:
                 if hidden_states is not None:
-                    reps = self.encode_from_hidden_state(hidden_states, prompt_length)
+                    reps = self.encode_from_hidden_state(
+                        hidden_state=hidden_states,
+                        attention_mask=attention_mask,
+                        prompt_length=prompt_length,
+                    )
                 else:
                     reps, hidden_state = self.encode(input_ids, attention_mask, prompt_length, return_last_hidden_state=True)
             output['reps'] = reps

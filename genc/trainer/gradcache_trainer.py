@@ -223,20 +223,6 @@ class GradCacheTrainer:
                 adapter_name=model_args.gen_adapter_name,
             )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
 
-            with torch.no_grad():
-                if ref_model is not None:
-                    ref_logits = ref_model(
-                        input_ids=concat_input_ids,
-                        attention_mask=concat_attention_mask,
-                        is_gen=True,
-                    )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
-                else: # use the reranker backbone as the reference model (but without adapter)
-                    ref_logits = model(
-                        input_ids=concat_input_ids,
-                        attention_mask=concat_attention_mask,
-                        is_gen=True,
-                        disable_adapter=True
-                    )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
             reranker_logps = get_batch_logps(
                 logits=reranker_logits,
                 labels=concat_labels,
@@ -245,17 +231,32 @@ class GradCacheTrainer:
                 label_pad_token_id=-100,
             ) # [bs * (num_pos + num_neg)]
             reranker_logps = reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
-            ref_logps = get_batch_logps(
-                logits=ref_logits,
-                labels=concat_labels,
-                loss_weight_mask=concat_loss_weight_mask,
-                average_log_prob=training_args.dpo_loss_type == "ipo",
-                label_pad_token_id=-100,
-            ) # [bs * (num_pos + num_neg)]
-            ref_logps = ref_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
             
             # Reranker loss
             if (training_args.mode == 'edpo') and compute_dpo_loss: 
+                with torch.no_grad():
+                    if ref_model is not None:
+                        ref_logits = ref_model(
+                            input_ids=concat_input_ids,
+                            attention_mask=concat_attention_mask,
+                            is_gen=True,
+                        )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
+                    else: # use the reranker backbone as the reference model (but without adapter)
+                        ref_logits = model(
+                            input_ids=concat_input_ids,
+                            attention_mask=concat_attention_mask,
+                            is_gen=True,
+                            disable_adapter=True
+                        )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
+                ref_logps = get_batch_logps(
+                    logits=ref_logits,
+                    labels=concat_labels,
+                    loss_weight_mask=concat_loss_weight_mask,
+                    average_log_prob=training_args.dpo_loss_type == "ipo",
+                    label_pad_token_id=-100,
+                ) # [bs * (num_pos + num_neg)]
+                ref_logps = ref_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
+                
                 policy_choice_logps = reranker_logps[:, 0] # [bs]
                 policy_reject_logps = reranker_logps[:, num_pos] # [bs]
                 ref_choice_logps = ref_logps[:, 0]
@@ -269,6 +270,7 @@ class GradCacheTrainer:
                     label_smoothing=training_args.label_smoothing_factor,
                     beta=training_args.dpo_beta,
                 )
+                reranker_loss = reranker_loss.mean()
             elif training_args.mode == 'esft':
                 reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
                 choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
@@ -282,8 +284,8 @@ class GradCacheTrainer:
             
             #KL loss
             dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
-            dual_logps = torch.log_softmax(dual_scores, dim=-1) # [bs, num_pos + num_neg]
-            reranker_scores = training_args.dpo_beta * (reranker_logps - ref_logps) # [bs, num_pos + num_neg]
+            dual_logps = torch.log_softmax(dual_scores/0.1, dim=-1) # [bs, num_pos + num_neg]
+            reranker_scores = 0.1 * reranker_logps # [bs, num_pos + num_neg]
             reranker_probs = torch.softmax(reranker_scores, dim=-1) # [bs, num_pos + num_neg]
             kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
             kl_loss = kl_loss_func(dual_logps, reranker_probs)
@@ -291,11 +293,9 @@ class GradCacheTrainer:
             loss = training_args.kl_loss_weight * kl_loss + training_args.gen_loss_weight * reranker_loss
             loss = loss / gradient_accumulation_iters
             con_loss_surrogate = torch.dot(retriever_reps.flatten(), reps_gradcache.flatten())
-
+            loss = loss + con_loss_surrogate
             # Backward pass
             self.fabric.backward(loss)
-            self.fabric.backward(con_loss_surrogate)
-
             return reranker_loss.detach(), kl_loss.detach()
 
     def training_step(
@@ -410,10 +410,6 @@ def fit(
         )
     iter_num = 0
 
-    reranker_running_loss = RunningMean(window=1, sync_on_compute=False).to(fabric.device)
-    kl_running_loss = RunningMean(window=1, sync_on_compute=False).to(fabric.device)
-    cons_running_loss = RunningMean(window=1, sync_on_compute=False).to(fabric.device)
-
     fabric.print("Training data size:", len(train_dataloader))
     refresh_sampler = False
     fabric.print("Start training with batch size:", training_args.batch_size(fabric.world_size))
@@ -443,9 +439,7 @@ def fit(
             training_args=training_args,
             batch=batch,
         )
-        cons_running_loss(cons_loss.detach())
-        reranker_running_loss(reranker_loss.detach())
-        kl_running_loss(kl_loss.detach())
+        cons_loss = cons_loss / fabric.world_size
 
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
@@ -455,15 +449,12 @@ def fit(
             scheduler.step()
         
         if iter_num % training_args.log_interval == 0:
-            _cons_loss = cons_running_loss.compute().item()
-            _kl_loss = kl_running_loss.compute().item()
-            _reranker_loss = reranker_running_loss.compute().item()
             t1 = time.perf_counter()
 
             metrics = {
-                "cons_loss": _cons_loss,
-                "kl_loss": _kl_loss,
-                "reranker_loss": _reranker_loss,
+                "cons_loss": cons_loss.item(),
+                "kl_loss": kl_loss.item(),
+                "reranker_loss": reranker_loss.item(),
                 "iter": iter_num,
                 "epoch": train_iterator.epoch,
                 "iter_time": t1 - iter_t0,
@@ -474,8 +465,8 @@ def fit(
             fabric.print(
             f"Epoch {metrics['epoch']+1} | iter {metrics['iter']} |"
             f" cons loss: {metrics['cons_loss']:.3f},"
-            f" kl loss: {_kl_loss:.3f},"
-            f" reranker loss: {_reranker_loss:.3f},"
+            f" kl loss: {kl_loss:.3f},"
+            f" reranker loss: {reranker_loss:.3f},"
             # f" val: {val_metric} |"
             f" lr: {metrics['learning_rate']:.2e} |"
             f" iter time: {metrics['iter_time']:.2f} s"
