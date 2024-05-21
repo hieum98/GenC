@@ -37,7 +37,6 @@ def fit(
     iter_num = 0
 
     gradient_accumulation_iters = training_args.batch_size(fabric.world_size) // training_args.mini_batch_size
-    sft_loss = RunningMean(window=gradient_accumulation_iters, sync_on_compute=False).to(fabric.device)
 
     fabric.print("Training data size:", len(train_dataloader))
     refresh_sampler = False
@@ -74,6 +73,7 @@ def fit(
         minibatch_input = split_input(model_inputs, training_args.mini_batch_size)
         accumulated_flags = [True for _ in range(len(minibatch_input)-1)] + [False]
         gradient_accumulation_iters = len(minibatch_input)
+        all_loss = []
         for flag, input_batch in zip(accumulated_flags, minibatch_input):
             with fabric.no_backward_sync(model, enabled=flag):
                 output = model(
@@ -85,9 +85,10 @@ def fit(
                     adapter_name=model_args.gen_adapter_name,
                 )
                 loss = output['loss']
+                all_loss.append(loss)
                 fabric.backward(loss/gradient_accumulation_iters)
-                sft_loss.update(loss.detach())
-        
+
+        loss = torch.stack(all_loss).mean()
         if training_args.apply_gradient_clipping and training_args.grad_norm_clip is not None:
             fabric.clip_gradients(model, optimizer, max_norm=training_args.grad_norm_clip)
         optimizer.step()
@@ -96,7 +97,6 @@ def fit(
             scheduler.step()
 
         if iter_num % training_args.log_interval == 0:
-            loss = sft_loss.compute().item()
             t1 = time.perf_counter()
 
             metrics = {
