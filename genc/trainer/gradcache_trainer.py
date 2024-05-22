@@ -15,7 +15,7 @@ from torchmetrics import RunningMean
 
 from genc.args import ModelArguments, TrainingArguments, ValidationArgument
 from genc.model.lora_genc import LoRaGenc
-from genc.trainer.trainer_utils import CycleIterator, RandContext, chunked_cross_entropy, dpo_loss, get_batch_logps, split_input
+from genc.trainer.trainer_utils import CycleIterator, RandContext, chunked_cross_entropy, preference_loss, get_batch_logps, split_input
 
 
 class GradCacheTrainer:
@@ -148,7 +148,7 @@ class GradCacheTrainer:
         self,
         model: LoRaGenc,
         ref_model: LoRaGenc,
-        compute_dpo_loss: bool,
+        compute_preference_loss: bool,
         stage: RandContext,
         model_inputs: List[Dict[str, torch.Tensor]],
         reps_gradcache: torch.Tensor, # [batch_size, 1 + num_pos + num_neg, hidden_size]
@@ -223,7 +223,7 @@ class GradCacheTrainer:
                 adapter_name=model_args.gen_adapter_name,
             )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
 
-            reranker_logps = get_batch_logps(
+            reranker_logps, token_mean_reranker_logps = get_batch_logps(
                 logits=reranker_logits,
                 labels=concat_labels,
                 loss_weight_mask=concat_loss_weight_mask,
@@ -231,9 +231,10 @@ class GradCacheTrainer:
                 label_pad_token_id=-100,
             ) # [bs * (num_pos + num_neg)]
             reranker_logps = reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
+            token_mean_reranker_logps = token_mean_reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
             
             # Reranker loss
-            if (training_args.mode == 'edpo') and compute_dpo_loss: 
+            if (training_args.mode == 'edpo') and compute_preference_loss: 
                 with torch.no_grad():
                     if ref_model is not None:
                         ref_logits = ref_model(
@@ -248,7 +249,7 @@ class GradCacheTrainer:
                             is_gen=True,
                             disable_adapter=True
                         )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
-                ref_logps = get_batch_logps(
+                ref_logps, _ = get_batch_logps(
                     logits=ref_logits,
                     labels=concat_labels,
                     loss_weight_mask=concat_loss_weight_mask,
@@ -261,7 +262,7 @@ class GradCacheTrainer:
                 policy_reject_logps = reranker_logps[:, num_pos] # [bs]
                 ref_choice_logps = ref_logps[:, 0]
                 ref_reject_logps = ref_logps[:, num_pos]
-                reranker_loss, _, _ = dpo_loss(
+                reranker_loss = preference_loss(
                     policy_choice_logps,
                     policy_reject_logps,
                     ref_choice_logps,
@@ -271,6 +272,27 @@ class GradCacheTrainer:
                     beta=training_args.dpo_beta,
                 )
                 reranker_loss = reranker_loss.mean()
+            elif training_args.mode == 'ecpo':
+                policy_choice_logps = reranker_logps[:, 0] # [bs]
+                policy_reject_logps = reranker_logps[:, num_pos] # [bs]
+                cpo_loss = preference_loss(
+                    policy_choice_logps,
+                    policy_reject_logps,
+                    ref_choice_logps=None,
+                    ref_reject_logps=None,
+                    reference_free=True,
+                    loss_type=training_args.dpo_loss_type,
+                    label_smoothing=training_args.label_smoothing_factor,
+                    beta=training_args.dpo_beta,
+                )
+                reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
+                choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
+                clm_loss = chunked_cross_entropy(
+                    logits=choices_logits,
+                    targets=choices_labels,
+                    loss_weight_mask=choices_loss_weight_mask
+                )
+                reranker_loss = cpo_loss.mean() + clm_loss
             elif training_args.mode == 'esft':
                 reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
                 choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
@@ -288,14 +310,16 @@ class GradCacheTrainer:
             #KL loss
             dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
             dual_logps = torch.log_softmax(dual_scores/0.1, dim=-1) # [bs, num_pos + num_neg]
-            reranker_scores = 0.1 * reranker_logps # [bs, num_pos + num_neg]
+            reranker_scores = token_mean_reranker_logps # [bs, num_pos + num_neg]
             reranker_probs = torch.softmax(reranker_scores, dim=-1) # [bs, num_pos + num_neg]
             kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
+            # detach reranker_probs to avoid backpropagation through the reranker, that means only reranker guild the retriever training
+            # furthermore, enable backpropagation through the reranker casausing nan loss, need to further investigate
+            reranker_probs = reranker_probs.detach()
             kl_loss = kl_loss_func(dual_logps, reranker_probs)
             # check if the kl_loss is nan
             if torch.isnan(kl_loss):
                 kl_loss = torch.tensor(0.0, device=kl_loss.device)
-
 
             loss = training_args.kl_loss_weight * kl_loss + training_args.gen_loss_weight * reranker_loss
             loss = loss / gradient_accumulation_iters
@@ -367,12 +391,12 @@ class GradCacheTrainer:
         all_reranker_loss = []
         all_kl_loss = []
         for i, (flag, chunk, model_cache, state) in enumerate(zip(accumulated_flags, splitted_inputs, cache, rnd_states)):
-            compute_dpo_loss = True if training_args.num_dpo_step_per_batch < i else False
+            compute_preference_loss = True if training_args.num_dpo_step_per_batch < i else False
             with self.fabric.no_backward_sync(model, enabled=flag):
                 reranker_loss, kl_loss = self.forward_backward(
                     model=model,
                     ref_model=ref_model,
-                    compute_dpo_loss=compute_dpo_loss,
+                    compute_preference_loss=compute_preference_loss,
                     stage=state,
                     model_inputs=chunk,
                     reps_gradcache=model_cache, # [batch_size, 1 + num_pos + num_neg, hidden_size]

@@ -259,7 +259,7 @@ def get_batch_logps(
     average_log_prob: bool = False,
     label_pad_token_id: int = -100,
     loss_weight_mask: Optional[torch.FloatTensor] = None,
-) -> torch.FloatTensor:
+) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
     if logits.shape[:-1] != labels.shape:
         raise ValueError("Logits (batch and sequence length dim) and labels must have the same shape.")
     labels = labels[:, 1:].clone()
@@ -270,11 +270,11 @@ def get_batch_logps(
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == label_pad_token_id] = 0
     per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2) # (batch_size, seq_len)
-
+    average_logs = (per_token_logps * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1)
     if average_log_prob:
-        return (per_token_logps * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1) # (batch_size,)
+        return (per_token_logps * loss_weight_mask).sum(-1) / loss_weight_mask.sum(-1), average_logs # (batch_size,)
     else:
-        return (per_token_logps * loss_weight_mask).sum(-1) # (batch_size,)
+        return (per_token_logps * loss_weight_mask).sum(-1), average_logs # (batch_size,)
 
 
 def online_hard_example_mining(
@@ -387,16 +387,16 @@ def online_hard_example_mining(
     return emb_model_inputs, gen_model_inputs
 
 
-def dpo_loss(
+def preference_loss(
         policy_chosen_logps: torch.FloatTensor,
         policy_rejected_logps: torch.FloatTensor,
-        reference_chosen_logps: torch.FloatTensor,
-        reference_rejected_logps: torch.FloatTensor,
+        reference_chosen_logps: torch.FloatTensor = None,
+        reference_rejected_logps: torch.FloatTensor = None,
         loss_type: str = "sigmoid",
         reference_free: bool = False,
         label_smoothing: float = 0.0,
         beta: float = 0.1,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    ) -> torch.FloatTensor:
         """Compute the DPO loss for a batch of policy and reference model log probabilities.
 
         Args:
@@ -405,14 +405,12 @@ def dpo_loss(
             reference_chosen_logps: Log probabilities of the reference model for the chosen responses. Shape: (batch_size,)
             reference_rejected_logps: Log probabilities of the reference model for the rejected responses. Shape: (batch_size,)
             loss_type: The type of DPO loss to compute. Should be one of ['sigmoid', 'hinge', 'ipo', 'kto_pair'].
-            reference_free: Whether to ignore the reference model. If True, the reference model log probabilities are set to 0.
-            label_smoothing: The label smoothing parameter for the DPO loss. Should be in the range [0, 1].
-            beta: The temperature parameter for the DPO loss. Should be a positive scalar.
+            reference_free: Whether to ignore the reference model. If True, the reference model log probabilities are set to 0, i.e., cpo loss.
+            label_smoothing: The label smoothing parameter. Should be in the range [0, 1].
+            beta: The temperature parameter. Should be a positive scalar.
 
         Returns:
-            A tuple of three tensors: (losses, chosen_rewards, rejected_rewards).
-            The losses tensor contains the DPO loss for each example in the batch.
-            The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
+            The perference loss for each example in the batch. Shape: (batch_size,)
         """
         pi_logratios = policy_chosen_logps - policy_rejected_logps
         if reference_free:
@@ -454,7 +452,7 @@ def dpo_loss(
             raise ValueError(
                 f"Unknown loss type: {loss_type}. Should be one of ['sigmoid', 'hinge', 'ipo', 'kto_pair']"
             )
-        return losses, None, None
+        return losses # (batch_size,)
 
 
 def chunked_cross_entropy(

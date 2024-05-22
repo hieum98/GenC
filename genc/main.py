@@ -278,7 +278,8 @@ def main(
         model.load_state_dict(checkpoint['model'], strict=False)
         to_merge_adapter = model_args.emb_adapter_name if training_args.mode != 'sft' else model_args.gen_adapter_name
         model = model.merge_and_unload(adapter_names=[to_merge_adapter], progressbar=True)
-        save_dir = Path(training_args.output_dir) / 'full_model'
+        save_dir = Path(training_args.output_dir)
+        save_dir = save_dir / save_dir.name
         model.save_pretrained(save_dir)
         tokenizer.save_pretrained(save_dir)
         fabric.print(f"Model and tokenizer are saved to {save_dir}")

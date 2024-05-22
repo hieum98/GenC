@@ -10,7 +10,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
-#SBATCH --array=0-55
+#SBATCH --array=0-11
 
 # Quick eval: 0-11
 # FEWSHOT: 0-9
@@ -144,8 +144,8 @@ REMAIN=(
     "RedditClusteringP2P"
 )
 
-DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
-# DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
+# DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
+DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 # DS=${RETRIEVAL[$SLURM_ARRAY_TASK_ID]}
 
 export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
@@ -167,7 +167,7 @@ echo "Running evaluation for MTEB on $DS"
 #     --pooling_method mean 
 
 python -m eval.eval_mteb \
-    --model_name_or_path checkpoint/edpo_msmarco_1.5b_instruct \
+    --model_name_or_path output/edpo_msmarco_1.5b_sft/edpo_msmarco_1.5b_sft_v0 \
     --pretrained_type phi \
     --attn_implementation flash_attention_2 \
     --use_bidirectional \
