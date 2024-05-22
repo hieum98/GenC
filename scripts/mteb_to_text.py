@@ -149,11 +149,12 @@ TASK_LIST_NAMES = [
 ]
 
 MODELS = [
-    'edpo_msmarco_1.5b_instruct_v0',
-    'edpo_msmarco_1.5b_instruct',
-    'edpo_msmarco_1.5b_sft_v0',
-    'edpo_msmarco_1.5b_sft',
-    'edpo_msmarco_1.5b_no_sft'
+    # 'edpo_msmarco_1.5b_instruct_v0',
+    # 'edpo_msmarco_1.5b_instruct',
+    # 'edpo_msmarco_1.5b_sft_v0',
+    # 'edpo_msmarco_1.5b_sft',
+    'edpo_msmarco_1.5b_no_sft',
+    'edpo_msmarco_1.5b_joint_no_sft',
 ]
 
 MODEL_TO_NAME = {
