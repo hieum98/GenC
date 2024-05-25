@@ -310,8 +310,8 @@ class GradCacheTrainer:
             #KL loss
             dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
             dual_logps = torch.log_softmax(dual_scores/0.1, dim=-1) # [bs, num_pos + num_neg]
-            reranker_scores = token_mean_reranker_logps # [bs, num_pos + num_neg]
-            reranker_probs = torch.softmax(reranker_scores, dim=-1) # [bs, num_pos + num_neg]
+            # reranker_scores = token_mean_reranker_logps # [bs, num_pos + num_neg]
+            reranker_probs = torch.softmax(token_mean_reranker_logps, dim=-1) # [bs, num_pos + num_neg]
             kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
             # detach reranker_probs to avoid backpropagation through the reranker, that means only reranker guild the retriever training
             # furthermore, enable backpropagation through the reranker casausing nan loss, need to further investigate

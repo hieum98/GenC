@@ -53,10 +53,10 @@ kl_loss_weight: 1.0
 use_miner: True
 dpo_loss_type: sigmoid
 dpo_beta: 0.1
-label_smoothing_factor: 0.1
+label_smoothing_factor: 0.0
 
 # Optimizer args
-learning_rate: 0.0001 # 1e-4@512
+learning_rate: 0.0002 # 2e-4@512
  
 apply_gradient_clipping: False
 grad_norm_clip: 0.3
