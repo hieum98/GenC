@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=1          
 #SBATCH --mem=150G
 #SBATCH --constraint=h100|gpu-80gb|gpu-40gb|gpu-20gb
-#SBATCH --partition=preempt
+#SBATCH --partition=gpulong
 #SBATCH --gres=gpu:1                 # number of gpus
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=1
 #SBATCH --output=/home/hieum/uonlp/LLM_Emb/mteb-%j.out
 #SBATCH --error=/home/hieum/uonlp/LLM_Emb/mteb-%j.err
 #SBATCH --array=0-55
@@ -148,14 +148,25 @@ DS=${ALLDS[$SLURM_ARRAY_TASK_ID]}
 # DS=${QUICK_EVAL[$SLURM_ARRAY_TASK_ID]}
 # DS=${RETRIEVAL[$SLURM_ARRAY_TASK_ID]}
 
-export TRANSFORMERS_CACHE=/home/hieum/uonlp/hf_cache
 export HF_HOME=/home/hieum/uonlp/hf_cache
 
 # For each dataset in ALLDS run the evaluation script
 echo "Running evaluation for MTEB on $DS"
 
 python -m eval.eval_mteb \
-    --model_name_or_path output/edpo_msmarco_8b/edpo_msmarco_8b \
+    --model_name_or_path output/edpo_8b/edpo_8b \
+    --pretrained_type llama \
+    --attn_implementation sdpa \
+    --use_bidirectional \
+    --task_names $DS \
+    --instruction_set genclm \
+    --instruction_format genclm \
+    --batch_size 8 \
+    --pipeline_parallel \
+    --pooling_method mean 
+
+python -m eval.eval_mteb \
+    --model_name_or_path output/edpo_msmarco_8b_v2/edpo_msmarco_8b_v2 \
     --pretrained_type llama \
     --attn_implementation sdpa \
     --use_bidirectional \

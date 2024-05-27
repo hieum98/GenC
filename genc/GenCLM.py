@@ -39,6 +39,7 @@ class GenCLM(torch.nn.Module):
         else:
             raise ValueError(f"Model type not recognized: {model_weights_name_or_path}")
         
+        print(f"Loading model from {model_weights_name_or_path}")
         self.model = model_class.from_pretrained(
             model_weights_name_or_path,
             *model_args,

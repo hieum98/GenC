@@ -142,8 +142,9 @@ def main(
     )
     fabric.print("Model architecture")
     fabric.print(model)
-
-    if training_args.mode == 'edpo':
+    
+    ref_model = None
+    if training_args.mode in ['edpo', 'ecpo']:
         if model_args.ref_model_name_or_path is not None:
             ref_model, _ = load_model(
                 model_weights_name_or_path=model_args.ref_model_name_or_path,
@@ -165,7 +166,6 @@ def main(
                 attn_implementation=model_args.attn_implementation,
             )
         else:
-            ref_model = None
             fabric.print("No reference model is provided. Using the same model for reference.")
 
     model = fabric.setup_module(model)
@@ -222,7 +222,7 @@ def main(
             training_args=training_args,
             validation_args=validation_args,
             )
-    elif training_args.mode in ['esft', 'edpo']:
+    elif training_args.mode in ['esft', 'edpo', 'ecpo']:
         genclm_fit(
             fabric=fabric,
             model=model,

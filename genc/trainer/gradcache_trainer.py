@@ -278,8 +278,6 @@ class GradCacheTrainer:
                 cpo_loss = preference_loss(
                     policy_choice_logps,
                     policy_reject_logps,
-                    ref_choice_logps=None,
-                    ref_reject_logps=None,
                     reference_free=True,
                     loss_type=training_args.dpo_loss_type,
                     label_smoothing=training_args.label_smoothing_factor,

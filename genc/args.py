@@ -144,7 +144,7 @@ class TrainingArguments():
         )
     mode: str = field(
         default='edpo',
-        metadata={"help": "The mode of training. Should be one of ['edpo', 'esft', 'sft']"},
+        metadata={"help": "The mode of training. Should be one of ['edpo', 'esft', 'sft', 'ecpo']"},
         )
     
     # FSDP settings

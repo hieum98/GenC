@@ -152,7 +152,9 @@ MODELS = [
     'edpo_msmarco_1.5b_no_sft',
     'edpo_msmarco_8b_instruct_v0',
     '8b_contrast',
-    'edpo_msmarco_8b'
+    'edpo_msmarco_8b',
+    'edpo_msmarco_8b_v2',
+    'edpo_8b',
 ]
 
 MODEL_TO_NAME = {
