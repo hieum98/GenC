@@ -15,7 +15,7 @@ class GenCLM(torch.nn.Module):
             model_weights_name_or_path: str,
             is_old: bool = False,
             pretrained_type: str = 'mistral',
-            use_bidirectional: bool = False,
+            use_bidirectional: bool = True,
             normalized: bool = True,
             pooling_method: str = "mean",
             torch_dtype: torch.dtype = torch.bfloat16,
