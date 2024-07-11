@@ -1,7 +1,7 @@
 # *GenC: Generative Contrastive Learning for Passage Retrieval with Large Language Models*
 
 [![EMNLP](https://img.shields.io/badge/EMNLP-2024-b31b1b.svg)](https://arxiv.org/)
-[![HF Link](https://img.shields.io/badge/HF%20Models-GenC-FFD21E.svg)](https://huggingface.co/)
+[![HF Link](https://img.shields.io/badge/HF%20Models-GenC-FFD21E.svg)](https://huggingface.co/Hieuman/GenC-LlaMa)
 
 Generative Contrastive Learning (GenC) is a novel training framework that unlocks the power of LLMs for retrieval tasks by seamlessly integrating their generation abilities into the representation learning process. GenC optimizes passage retrieval by not only leveraging the representation capacities of LLMs to learn dense embeddings but also directly exploiting the models’ generation probabilities as new training signals.
 
@@ -59,7 +59,7 @@ print(cos_sim)
 
 ## Model List
 
-We publish three pretrained model including [Meta-Llama-3-8B](https://huggingface.co); [Mistral-2-7B](https://huggingface.co); [Phi-1.5B](https://huggingface.co)
+We publish three pretrained model including [Meta-Llama-3-8B](https://huggingface.co/Hieuman/GenC-LlaMa); [Mistral-2-7B](https://huggingface.co/Hieuman/GenC-Mistral); [Phi-1.5B](https://huggingface.co/Hieuman/GenC-Phi1.5)
 
 
 ## Training 
