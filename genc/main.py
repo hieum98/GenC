@@ -222,7 +222,7 @@ def main(
             training_args=training_args,
             validation_args=validation_args,
             )
-    elif training_args.mode in ['esft', 'edpo', 'ecpo']:
+    else:
         genclm_fit(
             fabric=fabric,
             model=model,
@@ -234,8 +234,6 @@ def main(
             training_args=training_args,
             validation_args=validation_args,
             )
-    else:
-        raise ValueError(f"Invalid mode {training_args.mode}")
 
     torch.cuda.synchronize()
     save_full_path = Path(training_args.output_dir)/ training_args.mode / "final" / "model.ckpt"

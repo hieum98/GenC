@@ -216,113 +216,118 @@ class GradCacheTrainer:
             query_reps = _retriever_reps[:, 0] # [bs, hidden_size]
             passages_reps = _retriever_reps[:, 1:] # [bs, num_pos + num_neg, hidden_size]
 
-            reranker_logits = model(
-                input_ids=concat_input_ids,
-                attention_mask=concat_attention_mask,
-                is_gen=True,
-                adapter_name=model_args.gen_adapter_name,
-            )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
+            if training_args.mode == 'contrastive':
+                loss = torch.dot(retriever_reps.flatten(), reps_gradcache.flatten())
+                reranker_loss = torch.tensor(0.0, device=retriever_reps.device)
+                kl_loss = torch.tensor(0.0, device=retriever_reps.device)
+            else:
+                reranker_logits = model(
+                    input_ids=concat_input_ids,
+                    attention_mask=concat_attention_mask,
+                    is_gen=True,
+                    adapter_name=model_args.gen_adapter_name,
+                )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
 
-            reranker_logps, token_mean_reranker_logps = get_batch_logps(
-                logits=reranker_logits,
-                labels=concat_labels,
-                loss_weight_mask=concat_loss_weight_mask,
-                average_log_prob=training_args.dpo_loss_type == "ipo",
-                label_pad_token_id=-100,
-            ) # [bs * (num_pos + num_neg)]
-            reranker_logps = reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
-            token_mean_reranker_logps = token_mean_reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
-            
-            # Reranker loss
-            if (training_args.mode == 'edpo') and compute_preference_loss: 
-                with torch.no_grad():
-                    if ref_model is not None:
-                        ref_logits = ref_model(
-                            input_ids=concat_input_ids,
-                            attention_mask=concat_attention_mask,
-                            is_gen=True,
-                        )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
-                    else: # use the reranker backbone as the reference model (but without adapter)
-                        ref_logits = model(
-                            input_ids=concat_input_ids,
-                            attention_mask=concat_attention_mask,
-                            is_gen=True,
-                            disable_adapter=True
-                        )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
-                ref_logps, _ = get_batch_logps(
-                    logits=ref_logits,
+                reranker_logps, token_mean_reranker_logps = get_batch_logps(
+                    logits=reranker_logits,
                     labels=concat_labels,
                     loss_weight_mask=concat_loss_weight_mask,
                     average_log_prob=training_args.dpo_loss_type == "ipo",
                     label_pad_token_id=-100,
                 ) # [bs * (num_pos + num_neg)]
-                ref_logps = ref_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
+                reranker_logps = reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
+                token_mean_reranker_logps = token_mean_reranker_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
                 
-                policy_choice_logps = reranker_logps[:, 0] # [bs]
-                policy_reject_logps = reranker_logps[:, num_pos] # [bs]
-                ref_choice_logps = ref_logps[:, 0]
-                ref_reject_logps = ref_logps[:, num_pos]
-                reranker_loss = preference_loss(
-                    policy_choice_logps,
-                    policy_reject_logps,
-                    ref_choice_logps,
-                    ref_reject_logps,
-                    loss_type=training_args.dpo_loss_type,
-                    label_smoothing=training_args.label_smoothing_factor,
-                    beta=training_args.dpo_beta,
-                )
-                reranker_loss = reranker_loss.mean()
-            elif training_args.mode == 'ecpo':
-                policy_choice_logps = reranker_logps[:, 0] # [bs]
-                policy_reject_logps = reranker_logps[:, num_pos] # [bs]
-                cpo_loss = preference_loss(
-                    policy_choice_logps,
-                    policy_reject_logps,
-                    reference_free=True,
-                    loss_type=training_args.dpo_loss_type,
-                    label_smoothing=training_args.label_smoothing_factor,
-                    beta=training_args.dpo_beta,
-                )
-                reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
-                choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
-                clm_loss = chunked_cross_entropy(
-                    logits=choices_logits,
-                    targets=choices_labels,
-                    loss_weight_mask=choices_loss_weight_mask
-                )
-                reranker_loss = cpo_loss.mean() + clm_loss
-            elif training_args.mode == 'esft':
-                reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
-                choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
-                reranker_loss = chunked_cross_entropy(
-                    logits=choices_logits,
-                    targets=choices_labels,
-                    loss_weight_mask=choices_loss_weight_mask
-                )
-            else:
-                reranker_loss = torch.tensor(0.0, device=reranker_logits.device)
-            # check if the reranker_loss is nan
-            if torch.isnan(reranker_loss):
-                reranker_loss = torch.tensor(0.0, device=reranker_loss.device)
-            
-            #KL loss
-            dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
-            dual_logps = torch.log_softmax(dual_scores/0.1, dim=-1) # [bs, num_pos + num_neg]
-            # reranker_scores = token_mean_reranker_logps # [bs, num_pos + num_neg]
-            reranker_probs = torch.softmax(token_mean_reranker_logps, dim=-1) # [bs, num_pos + num_neg]
-            kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
-            # detach reranker_probs to avoid backpropagation through the reranker, that means only reranker guild the retriever training
-            # furthermore, enable backpropagation through the reranker casausing nan loss, need to further investigate
-            reranker_probs = reranker_probs.detach()
-            kl_loss = kl_loss_func(dual_logps, reranker_probs)
-            # check if the kl_loss is nan
-            if torch.isnan(kl_loss):
-                kl_loss = torch.tensor(0.0, device=kl_loss.device)
+                # Reranker loss
+                if (training_args.mode == 'edpo') and compute_preference_loss: 
+                    with torch.no_grad():
+                        if ref_model is not None:
+                            ref_logits = ref_model(
+                                input_ids=concat_input_ids,
+                                attention_mask=concat_attention_mask,
+                                is_gen=True,
+                            )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
+                        else: # use the reranker backbone as the reference model (but without adapter)
+                            ref_logits = model(
+                                input_ids=concat_input_ids,
+                                attention_mask=concat_attention_mask,
+                                is_gen=True,
+                                disable_adapter=True
+                            )['logits'] # [bs * (num_pos + num_neg), max_length, vocab_size]
+                    ref_logps, _ = get_batch_logps(
+                        logits=ref_logits,
+                        labels=concat_labels,
+                        loss_weight_mask=concat_loss_weight_mask,
+                        average_log_prob=training_args.dpo_loss_type == "ipo",
+                        label_pad_token_id=-100,
+                    ) # [bs * (num_pos + num_neg)]
+                    ref_logps = ref_logps.view(bs, num_pos + num_neg) # [bs, num_pos + num_neg]
+                    
+                    policy_choice_logps = reranker_logps[:, 0] # [bs]
+                    policy_reject_logps = reranker_logps[:, num_pos] # [bs]
+                    ref_choice_logps = ref_logps[:, 0]
+                    ref_reject_logps = ref_logps[:, num_pos]
+                    reranker_loss = preference_loss(
+                        policy_choice_logps,
+                        policy_reject_logps,
+                        ref_choice_logps,
+                        ref_reject_logps,
+                        loss_type=training_args.dpo_loss_type,
+                        label_smoothing=training_args.label_smoothing_factor,
+                        beta=training_args.dpo_beta,
+                    )
+                    reranker_loss = reranker_loss.mean()
+                elif training_args.mode == 'ecpo':
+                    policy_choice_logps = reranker_logps[:, 0] # [bs]
+                    policy_reject_logps = reranker_logps[:, num_pos] # [bs]
+                    cpo_loss = preference_loss(
+                        policy_choice_logps,
+                        policy_reject_logps,
+                        reference_free=True,
+                        loss_type=training_args.dpo_loss_type,
+                        label_smoothing=training_args.label_smoothing_factor,
+                        beta=training_args.dpo_beta,
+                    )
+                    reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
+                    choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
+                    clm_loss = chunked_cross_entropy(
+                        logits=choices_logits,
+                        targets=choices_labels,
+                        loss_weight_mask=choices_loss_weight_mask
+                    )
+                    reranker_loss = cpo_loss.mean() + clm_loss
+                elif training_args.mode == 'esft':
+                    reranker_logits = reranker_logits.view(bs, num_pos + num_neg, -1, reranker_logits.size(-1)) # [bs, num_pos + num_neg, max_length, vocab_size]
+                    choices_logits = reranker_logits[:, :num_pos] # [bs, num_pos, max_length, vocab_size]
+                    reranker_loss = chunked_cross_entropy(
+                        logits=choices_logits,
+                        targets=choices_labels,
+                        loss_weight_mask=choices_loss_weight_mask
+                    )
+                else:
+                    reranker_loss = torch.tensor(0.0, device=reranker_logits.device)
+                # check if the reranker_loss is nan
+                if torch.isnan(reranker_loss):
+                    reranker_loss = torch.tensor(0.0, device=reranker_loss.device)
+                
+                #KL loss
+                dual_scores = torch.cosine_similarity(query_reps.unsqueeze(1), passages_reps, dim=-1) # [bs, num_pos + num_neg]
+                dual_logps = torch.log_softmax(dual_scores/0.1, dim=-1) # [bs, num_pos + num_neg]
+                # reranker_scores = token_mean_reranker_logps # [bs, num_pos + num_neg]
+                reranker_probs = torch.softmax(token_mean_reranker_logps, dim=-1) # [bs, num_pos + num_neg]
+                kl_loss_func = torch.nn.KLDivLoss(reduction="batchmean")
+                # detach reranker_probs to avoid backpropagation through the reranker, that means only reranker guild the retriever training
+                # furthermore, enable backpropagation through the reranker casausing nan loss, need to further investigate
+                reranker_probs = reranker_probs.detach()
+                kl_loss = kl_loss_func(dual_logps, reranker_probs)
+                # check if the kl_loss is nan
+                if torch.isnan(kl_loss):
+                    kl_loss = torch.tensor(0.0, device=kl_loss.device)
 
-            loss = training_args.kl_loss_weight * kl_loss + training_args.gen_loss_weight * reranker_loss
-            loss = loss / gradient_accumulation_iters
-            con_loss_surrogate = torch.dot(retriever_reps.flatten(), reps_gradcache.flatten())
-            loss = loss + con_loss_surrogate
+                loss = training_args.kl_loss_weight * kl_loss + training_args.gen_loss_weight * reranker_loss
+                loss = loss / gradient_accumulation_iters
+                con_loss_surrogate = torch.dot(retriever_reps.flatten(), reps_gradcache.flatten())
+                loss = loss + con_loss_surrogate
             # Backward pass
             self.fabric.backward(loss)
             return reranker_loss.detach(), kl_loss.detach()

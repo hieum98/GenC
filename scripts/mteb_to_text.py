@@ -118,7 +118,6 @@ TASK_LIST_EN = (
 QUICK_EVAL = [
     # Classification
     "Banking77Classification",
-    "EmotionClassification",
     # Clustering
     "MedrxivClusteringS2S",
     # PairClassification
@@ -126,12 +125,9 @@ QUICK_EVAL = [
     # Reranking
     "AskUbuntuDupQuestions",
     # Retrieval
-    "ArguAna",
     "NFCorpus",
     "SciFact",
     # STS
-    "BIOSSES",
-    "STS17",
     "STSBenchmark",
     # Summarization
     "SummEval",
@@ -150,11 +146,11 @@ TASK_LIST_NAMES = [
 
 MODELS = [
     'edpo_msmarco_1.5b_no_sft',
-    'edpo_msmarco_8b_instruct_v0',
-    '8b_contrast',
-    'edpo_msmarco_8b',
+    'edpo_msmarco_7b_v2',
     'edpo_msmarco_8b_v2',
-    'edpo_8b',
+    # 'edpo_1.5b',
+    # 'edpo_7b',
+    # 'edpo_8b',
 ]
 
 MODEL_TO_NAME = {

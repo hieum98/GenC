@@ -53,6 +53,10 @@ class GenCLM(torch.nn.Module):
             padding_side="right", # Has to be right so masking of instruction tokens works correctly
             trust_remote_code=True,
         )
+        if self.tokenizer.pad_token_id is None:
+            print("Tokenizer does not have a pad token. We will use the bos token as pad token.")
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         if is_old:
             base_bos: str = "<s>"
             user_bos: str = "<|user|>\n"
@@ -263,20 +267,6 @@ class GenCLMReranker(GenCLM):
             )
         return generative
     
-    def compute_gen_loss(
-            self,
-            labels, 
-            logits,
-            loss_weight_mask=None,
-            ):
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        loss_weight_mask = loss_weight_mask[..., 1:].contiguous() if loss_weight_mask is not None else None
-        loss = chunked_cross_entropy(
-            shift_logits, shift_labels, loss_weight_mask=loss_weight_mask, ignore_index=-100
-        )
-        return loss
-    
     @torch.no_grad()
     def predict(
         self,
@@ -300,26 +290,22 @@ class GenCLMReranker(GenCLM):
             sentence_batch = [[instruction, s[0], s[1]] for s in sentences[start_index:start_index+batch_size]]
             inputs = [self.tokenize_example_for_reranking(example, max_length) for example in sentence_batch]
             inputs = self.pad_gen_example(inputs)
-            labels = inputs["labels"]
-            loss_weight_mask = inputs["loss_weight_mask"]
+            labels = inputs["labels"].to(self.device)
+            loss_weight_mask = inputs["loss_weight_mask"].to(self.device)
             inputs = {
                 "input_ids": inputs["input_ids"].to(self.device),
                 "attention_mask": inputs["attention_mask"].to(self.device),
                 "is_gen": True
             }
-            logits = self.model(**inputs)['logits'].detach().cpu() # (batch_size, seq_len, vocab_size)
-            all_losses = []
-            for i in range(logits.size(0)):
-                loss = self.compute_gen_loss(
-                    labels=labels[i],
-                    logits=logits[i],
-                    loss_weight_mask=loss_weight_mask[i],
-                )
-                all_losses.append(loss)
-            all_losses = torch.stack(all_losses, dim=0)
-            score = 1.0 / torch.exp(all_losses)
-            pred_scores.append(score)
-        pred_scores = torch.cat(pred_scores, dim=0).numpy() # (num_samples, 1)
+            logits = self.model(**inputs)['logits'].detach() # (batch_size, seq_len, vocab_size)
+            _, token_mean_reranker_logps = get_batch_logps(
+                    logits=logits,
+                    labels=labels,
+                    loss_weight_mask=loss_weight_mask,
+                    label_pad_token_id=-100,
+                ) # [batch_size, 1]
+            pred_scores.append(token_mean_reranker_logps)
+        pred_scores = torch.cat(pred_scores, dim=0).cpu().numpy() # (num_samples, 1)
         if input_was_string:
             pred_scores = pred_scores[0]
 

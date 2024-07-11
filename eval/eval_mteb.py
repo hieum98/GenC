@@ -315,7 +315,7 @@ if __name__ == '__main__':
             
             gen_prompt = None
             if isinstance(instruction, list):
-                gen_prompt = instruction[1]
+                gen_prompt = "Craft a paragraph that addresses the query"
                 instruction = instruction[0]
             
             if isinstance(instruction, dict):
@@ -339,14 +339,19 @@ if __name__ == '__main__':
         eval_splits = ["test" if task_name not in ['MSMARCO'] else 'dev']
         evaluation = MTEB(tasks=[task_name], task_langs=['en'])
         save_predictions = True if task_name in SET_TO_TASK_TO_DS_TO_PROMPT[args.instruction_set]['Retrieval'] else False
-        evaluation.run(
-            model,
-            output_folder=output_folder,
-            eval_splits=eval_splits,
-            batch_size=args.batch_size,
-            save_predictions=save_predictions,
-            overwrite_results=args.overwrite_results,
-        )
+        # if exit prediction_path and rerank is True, then rerank the predictions using the reranker model
+        prediction_path = os.path.join(output_folder, f"{task_name}_predictions.json")
+        if os.path.exists(prediction_path) and args.rerank:
+            print("Skipping predictions for", task_name)
+        else:
+            evaluation.run(
+                model,
+                output_folder=output_folder,
+                eval_splits=eval_splits,
+                batch_size=args.batch_size,
+                save_predictions=save_predictions,
+                overwrite_results=args.overwrite_results,
+            )
         if gen_prompt and args.rerank:
             # Clear the model and gpu memory to avoid OOM errors when loading a new model
             torch.cuda.empty_cache()
@@ -365,7 +370,7 @@ if __name__ == '__main__':
                 top_k=args.top_k,
                 save_qrels=False,
                 overwrite_results=args.overwrite_results,
-                previous_results=os.path.join(output_folder, f"{task_name}_predictions.json"),
+                previous_results=prediction_path,
             )
 
 
